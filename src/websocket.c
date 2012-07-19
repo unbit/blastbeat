@@ -79,8 +79,22 @@ int bb_send_websocket_handshake(struct bb_session_request *bbsr) {
 }
 
 int bb_manage_websocket_header(struct bb_session_request *bbsr, char byte1, char byte2) {
-        bbsr->websocket_message_has_mask = (byte2 >> 7) & 1;
-        bbsr->websocket_message_size = byte2 & 0x7f;
+	char opcode = byte1 & 0xf;
+	if (opcode == 0x01 || opcode == 0x02) {
+        	bbsr->websocket_message_has_mask = (byte2 >> 7) & 1;
+        	bbsr->websocket_message_size = byte2 & 0x7f;
+		return 0;
+	}
+	if (opcode == 0x09) {
+		char pong[2];
+		pong[0] = 0xA;
+		pong[1] = 0;
+		if (write(bbsr->bbs->fd, pong, 2) != 2) {
+			bb_error("pong write()");
+		}	
+		return 0;
+	}
+	return -1;
 }
 
 int bb_websocket_pass(struct bb_session_request *bbsr, char *buf, ssize_t len) {
@@ -100,7 +114,9 @@ parser:
 			if (bbsr->websocket_message_queue_len < 2) {
 				return 0;
 			}
-			bb_manage_websocket_header(bbsr, bbsr->websocket_message_queue[0], bbsr->websocket_message_queue[1]);
+			if (bb_manage_websocket_header(bbsr, bbsr->websocket_message_queue[0], bbsr->websocket_message_queue[1])) {
+				return -1;
+			}
 			if (bbsr->websocket_message_has_mask) {
 				bbsr->websocket_message_phase = 1;
 			}
@@ -164,7 +180,7 @@ parser:
                default:
                        return -1;
        }
-       return 0; 
+       return -1; 
  }
 
 

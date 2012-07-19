@@ -177,7 +177,9 @@ static void read_callback(struct ev_loop *loop, struct ev_io *w, int revents) {
 			if (res != len) goto clear;
 		}
 		else if (bbs->requests_tail->type == BLASTBEAT_TYPE_WEBSOCKET) {
-			bb_manage_websocket(bbs->requests_tail, buf, len);
+			if (bb_manage_websocket(bbs->requests_tail, buf, len)) {
+				goto clear;
+			}
 		}
 		//printf("res = %d\n", res);	
 		return;
