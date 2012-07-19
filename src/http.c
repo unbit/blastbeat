@@ -105,7 +105,7 @@ static int bb_session_headers_complete(http_parser *parser) {
                         if (!bb_stricmp("websocket", 9, bbhh->value, bbhh->vallen)) {
                                 bbsr->type = BLASTBEAT_TYPE_WEBSOCKET;
                                 bb_send_websocket_handshake(bbsr);
-                                return 0;
+				goto msg;
                         }
                 }
         }
@@ -115,6 +115,7 @@ static int bb_session_headers_complete(http_parser *parser) {
                 bbsr->close = 1;
         }
 
+msg:
         // now encode headers in a uwsgi packet and send it as "headers" message
 	if (bb_uwsgi(bbsr)) {
 		return -1;
