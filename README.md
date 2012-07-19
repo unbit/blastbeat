@@ -31,3 +31,14 @@ header)
 
 * pong (response, confirm a backend presence)
 
+
+## building it
+
+you need openssl,zeromq and libev development headers:
+
+apt-get build-essential install libssl-dev libev-dev libzmq-dev
+
+should be enough
+
+run make to build the blastbeat daemon
+
