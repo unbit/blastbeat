@@ -14,7 +14,9 @@ the same backend node.
 
 'message type' identify the kind of the message. This is the list of currently defined message types:
 
-headers (request/response contains HTTP headers encoded in uwsgi format)
+headers (request/response contains HTTP headers as a raw format)
+
+uwsgi (request/response contains HTTP headers encoded in uwsgi format)
 
 body (request/response contains raw body)
 
