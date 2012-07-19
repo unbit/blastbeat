@@ -56,3 +56,34 @@ zmq = tcp://0.0.0.0:5000
 node = foobar1
 ```
 
+run the server with:
+
+./blastbeat yourfile.ini
+
+The blastbeat server will start receiving HTTP request to the 8080 port and will forward them to a backend node
+connected to the zmq router on port 5000.
+
+## backend nodes
+
+Backend nodes talk will blastbeat via a zmq dealer socket. That socket has to set a valid identity based on the node name
+expected by the virtualhost.
+
+In the previous example we have the localhost:8000 virtualhost expecting a single backend node with an identity of 'foobar1'
+
+Identity is a form of authorization for allowing ISPs to host a single blastbeat server for their customers.
+
+A simple python backend will be:
+
+```python
+import zmq
+
+context = zmq.Context()
+socket = context.socket(zmq.DEALER)
+socket.setsockopt(zmq.IDENTITY, 'foobar1')
+socket.connect('tcp://0.0.0.0:5000')
+
+# start receiving messages
+while True:
+    sid, msg_type, msg_body = socket.recv_multipart()
+    print sid, msg_type, msg_body
+```
