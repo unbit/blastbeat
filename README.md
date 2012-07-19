@@ -166,3 +166,51 @@ while True:
 ```
 
 ping/pong subsystem is used for nodes/backends healthchecks. If you do not respond to ping, your node will stop receiving requests pretty soon.
+
+## uwsgi
+
+by default the HTTP headers of a request are convert to a WSGI/PSGI/Rack-compliant dictionary encoded in the uwsgi format.
+That choice should allow easy integration with already existing apps.
+
+You can convert a uwsgi packet to a dictionary pretty easily:
+
+```python
+import struct
+def uwsgi_to_dict(msg):
+    (ulen, ) = struct.unpack('<H', msg[1:3])
+    pos = 4
+    env = {}
+    while pos < ulen:
+        (klen,) = struct.unpack('<H', msg[pos:pos+2])
+        k = msg[pos+2:pos+2+klen]
+        pos += 2+klen
+        (vlen,) = struct.unpack('<H', msg[pos:pos+2])
+        v = msg[pos+2:pos+2+vlen]
+        pos += 2+vlen
+        env[k] = v
+    return env
+```
+
+## chunk
+
+If you need to abuse chunked encoding for your applications, remember to set the Transfer-Encoding header:
+
+```python
+
+headers = '\r\n'.join(['HTTP/1.1 200 OK', 'Content-Type: text/html','Transfer-Encoding: chunked']) + '\r\n\r\n'
+socket.send(sid, zmq.SNDMORE)
+socket.send('headers', zmq.SNDMORE)
+socket.send(headers)
+for i in range(1,100):
+    socket.send(sid, zmq.SNDMORE)
+    socket.send('chunk', zmq.SNDMORE)
+    socket.send('i am the number %d<br/>' % i)
+```
+
+to end a chunked response just send an empty chunk
+
+```python
+socket.send(sid, zmq.SNDMORE)
+socket.send('chunk', zmq.SNDMORE)
+socket.send('')
+```
