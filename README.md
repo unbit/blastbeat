@@ -91,3 +91,51 @@ while True:
     print 'received a message of type %s' % msg_type
 ```
 
+## WebSockets
+
+WebSocket requests are automagically managed by BlastBeat. You do not need to manage the handshake, as soon as BlastBeat
+has completed the connection, you will start receiving messages of type 'websocket'
+
+## using the sid
+
+The sid (the first part of blastbeat zeromq messages) is a binary value of variable size. The developer should not 
+try to parse it, instead he should use it as the 'key' for a pool of threads/coroutine/greenthreads/whateveryouwant.
+
+This is an example (using gevent and gevent-zeromq) of high-concurrency scenario:
+
+A  main greenlet will receive blastbeat messages, for each new sid it find, a new greenlet will be created waiting on a queue
+for messages.
+
+
+```python
+from gevent_zeromq import zmq
+import gevent
+from gevent.queue import Queue
+
+context = zmq.Context()
+# create the dealer socket
+socket = context.socket(zmq.DEALER)
+# authorize it setting the identity
+socket.setsockopt(zmq.IDENTITY, 'foobar1')
+# connect to blastbeat
+socket.connect('tcp://0.0.0.0:5000')
+
+# our sessions dictionary
+sessions = {}
+
+def worker(sid, socket, q):
+    while True:
+        msg_type, msg_body = q.get() 
+        print "received a message of type", msg_type
+    
+def consumer():
+    sid, msg_type, msg_body = socket.recv_multipart()
+    if not sid in sessions:
+        q = gevent.Queue()
+        sessions[sid] = {'queue': q, 'thread': gevent.spawn(worker, sid, socket, q)}
+    
+    current_session = sessions[sid]
+    current_session['queue'].put((msg_type, msg_body))
+
+
+```
