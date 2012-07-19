@@ -60,7 +60,7 @@ static int header_value_cb(http_parser *parser, const char *buf, size_t len) {
 static int body_cb(http_parser *parser, const char *buf, size_t len) {
         struct bb_session_request *bbsr = (struct bb_session_request *) parser->data;
         // send a message as "body"
-        printf("SEND BODY to request %p\n", bbsr);
+	bb_zmq_send_msg(bbsr->bbs->dealer->identity, bbsr->bbs->dealer->len, (char *) &bbsr->bbs->fd, 4, "body", 4, buf, len);
         return 0;
 }
 
@@ -116,7 +116,10 @@ static int bb_session_headers_complete(http_parser *parser) {
         }
 
         // now encode headers in a uwsgi packet and send it as "headers" message
-        bb_zmq_send_msg(bbsr->bbs->dealer->identity, bbsr->bbs->dealer->len, (char *) &bbsr->bbs->fd, 4, "headers", 7, "ciao", 4);
+	if (bb_uwsgi(bbsr)) {
+		return -1;
+	}
+        bb_zmq_send_msg(bbsr->bbs->dealer->identity, bbsr->bbs->dealer->len, (char *) &bbsr->bbs->fd, 4, "uwsgi", 5, bbsr->uwsgi_buf, bbsr->uwsgi_pos);
         return 0;
 }
 

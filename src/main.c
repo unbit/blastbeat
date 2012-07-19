@@ -84,6 +84,9 @@ void bb_session_close(struct bb_session *bbs) {
 			free(bbsr->headers[i].key);
 			free(bbsr->headers[i].value);
 		}
+		if (bbsr->uwsgi_buf) {
+			free(bbsr->uwsgi_buf);
+		}
 		if (bbsr->websocket_message_queue) {
 			free(bbsr->websocket_message_queue);
 		}

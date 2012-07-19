@@ -27,11 +27,13 @@
 
 #define BLASTBEAT_TYPE_WEBSOCKET        1
 
+struct bb_virtualhost;
 struct bb_dealer {
         char *identity;
 	size_t len;
         char *identify_prefix;
         time_t last_pong;
+	struct bb_virtualhost *vhost;
         struct bb_dealer *next;
 };
 
@@ -66,6 +68,9 @@ struct bb_session_request {
         int type;
         uint64_t content_length;
         uint64_t written_bytes;
+	char *uwsgi_buf;
+	size_t uwsgi_len;
+	off_t uwsgi_pos;
         char *websocket_message_queue;
         uint64_t websocket_message_queue_len;
         uint64_t websocket_message_queue_pos;
@@ -110,3 +115,4 @@ struct blastbeat_server {
 void bb_error(char *);
 struct bb_http_header *bb_http_req_header(struct bb_session_request *, char *, size_t);
 struct bb_dealer *bb_get_dealer(char *, size_t);
+int bb_uwsgi(struct bb_session_request *);

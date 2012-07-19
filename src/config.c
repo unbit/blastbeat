@@ -79,7 +79,7 @@ static struct bb_dealer *create_dealer(struct bb_virtualhost *vhost, char *node)
 	memset(bbd, 0, sizeof(struct bb_dealer));
 	bbd->identity = node;
 	bbd->len = strlen(node);
-
+	bbd->vhost = vhost;
 	if (last_bbd) {
 		last_bbd->next = bbd;
 	}
