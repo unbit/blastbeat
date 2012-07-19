@@ -214,3 +214,9 @@ socket.send(sid, zmq.SNDMORE)
 socket.send('chunk', zmq.SNDMORE)
 socket.send('')
 ```
+
+## Support
+
+you can ask for help in the official mailing-list
+
+http://lists.unbit.it/cgi-bin/mailman/listinfo/blastbeat
