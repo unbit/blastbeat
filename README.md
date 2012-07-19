@@ -42,3 +42,17 @@ should be enough
 
 run make to build the blastbeat daemon
 
+## configure it
+
+you need a .ini config file specifying the address:port to bind the server to, the zmq router address and a series of
+allowed virtualhosts
+
+{{{
+[blastbeat]
+bind = 0.0.0.0:8080
+zmq = tcp://0.0.0.0:5000
+
+[blastbeat:localhost:8000]
+node = foobar1
+}}}
+
