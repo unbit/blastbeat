@@ -96,7 +96,7 @@ while True:
 WebSocket requests are automagically managed by BlastBeat. You do not need to manage the handshake, as soon as BlastBeat
 has completed the connection, you will start receiving messages of type 'websocket'
 
-## using the sid
+## using the sid (for concurrency)
 
 The sid (the first part of blastbeat zeromq messages) is a binary value of variable size. The developer should not 
 try to parse it, instead he should use it as the 'key' for a pool of threads/coroutine/greenthreads/whateveryouwant.
