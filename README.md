@@ -78,12 +78,16 @@ A simple python backend will be:
 import zmq
 
 context = zmq.Context()
+# create the dealer socket
 socket = context.socket(zmq.DEALER)
+# authorize it setting the identity
 socket.setsockopt(zmq.IDENTITY, 'foobar1')
+# connect to blastbeat
 socket.connect('tcp://0.0.0.0:5000')
 
 # start receiving messages
 while True:
     sid, msg_type, msg_body = socket.recv_multipart()
-    print sid, msg_type, msg_body
+    print 'received a message of type %s' % msg_type
 ```
+
