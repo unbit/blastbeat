@@ -14,20 +14,20 @@ the same backend node.
 
 'message type' identify the kind of the message. This is the list of currently defined message types:
 
-headers (request/response contains HTTP headers as a raw format)
+* headers (request/response contains HTTP headers as a raw format)
 
-uwsgi (request/response contains HTTP headers encoded in uwsgi format)
+* uwsgi (request/response contains HTTP headers encoded in uwsgi format)
 
-body (request/response contains raw body)
+* body (request/response contains raw body)
 
-chunk (response will encode the message in a HTTP chunk, REMEMBER: set the correct Transfer-Encoding in your
+* chunk (response will encode the message in a HTTP chunk, REMEMBER: set the correct Transfer-Encoding in your
 header) 
 
-end (request/response close the connection, REMEMBER: BlastBeat supports persistent connections !!!)
+* end (request/response close the connection, REMEMBER: BlastBeat supports persistent connections !!!)
 
-websocket (request/response contains a websocket message)
+* websocket (request/response contains a websocket message)
 
-ping (request, check for a backend availability)
+* ping (request, check for a backend availability)
 
-pong (response, confirm a backend presence)
+* pong (response, confirm a backend presence)
 
