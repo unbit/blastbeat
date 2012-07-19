@@ -124,19 +124,26 @@ socket.connect('tcp://0.0.0.0:5000')
 sessions = {}
 
 def worker(sid, socket, q):
+    # wait for messages forwarded by the consumer
     while True:
         msg_type, msg_body = q.get() 
         print "received a message of type", msg_type
     
 def consumer():
-    sid, msg_type, msg_body = socket.recv_multipart()
-    if not sid in sessions:
-        q = gevent.Queue()
-        sessions[sid] = {'queue': q, 'thread': gevent.spawn(worker, sid, socket, q)}
+    while True:
+        # receive a blastbeat message
+        sid, msg_type, msg_body = socket.recv_multipart()
+        # if a session for that sid is not available create it
+        if not sid in sessions:
+            # create a queue
+            q = Queue()
+            # spawn a greenlet fro the new client
+            sessions[sid] = {'queue': q, 'thread': gevent.spawn(worker, sid, socket, q)}
     
-    current_session = sessions[sid]
-    current_session['queue'].put((msg_type, msg_body))
+       current_session = sessions[sid]
+       current_session['queue'].put((msg_type, msg_body))
 
+# start the consumer greenlet
 main_loop = gevent.spawn(consumer)
 gevent.joinall([main_loop])
 ```
