@@ -147,3 +147,22 @@ def consumer():
 main_loop = gevent.spawn(consumer)
 gevent.joinall([main_loop])
 ```
+
+## ping/pong
+
+ping requests (and pong responses) have no sid associated. You have to simply respond to a ping request as soon as you receive it.
+
+So your consumer will be (very probably) something like that:
+
+```python
+while True:
+        # receive a blastbeat message
+        sid, msg_type, msg_body = socket.recv_multipart()
+        if msg_type == 'ping':
+            zmq.send(sid, zmq.SNDMORE)
+            zmq.send('pong', zmq.SNDMORE)
+            zmq.send('')
+            continue
+```
+
+ping/pong subsystem is used for nodes/backends healthchecks. If you do not respond to ping, your node will stop receiving requests pretty soon.
