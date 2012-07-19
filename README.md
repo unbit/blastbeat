@@ -137,5 +137,6 @@ def consumer():
     current_session = sessions[sid]
     current_session['queue'].put((msg_type, msg_body))
 
-
+main_loop = gevent.spawn(consumer)
+gevent.joinall([main_loop])
 ```
