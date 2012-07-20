@@ -17,6 +17,7 @@ struct bb_session_request *bb_new_request(struct bb_session *bbs) {
 	http_parser_init(&bbsr->parser, HTTP_REQUEST);
         bbsr->parser.data = bbsr;
         bbsr->last_was_value = 1;
+	bbsr->content_length = ULLONG_MAX;
 
 	if (!bbs->requests_head) {
 		//printf("first request\n");
@@ -292,7 +293,8 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 					bb_session_close(bbs);	
 					continue;
 				}
-				if (bbsr->content_length > 0 && bbsr->written_bytes >= bbsr->content_length && bbsr->close) {
+				// if Content-Length is specified, check it...
+				if (bbsr->content_length != ULLONG_MAX && bbsr->written_bytes >= bbsr->content_length && bbsr->close) {
 					bb_session_close(bbs);	
 					continue;
 				}
