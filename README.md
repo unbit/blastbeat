@@ -150,7 +150,7 @@ gevent.joinall([main_loop])
 
 ## ping/pong
 
-ping requests (and pong responses) have no sid associated. You have to simply respond to a ping request as soon as you receive it.
+ping requests (and pong responses) have no real sid associated. You have to simply respond to a ping request as soon as you receive it.
 
 So your consumer will be (very probably) something like that:
 
@@ -295,6 +295,22 @@ EM.run do
 end
 
 ```
+
+## Status/Issues
+
+* HTTPS support is missing
+
+* ping/pong system is still flaky
+
+* backends load balancing is incomplete
+
+* drop privileges
+
+## TODO
+
+* uWSGI Emperor support
+
+* graceful reloads
 
 ## Support
 
