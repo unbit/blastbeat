@@ -215,6 +215,87 @@ socket.send('chunk', zmq.SNDMORE)
 socket.send('')
 ```
 
+
+## Ruby EventMachine example
+
+```ruby
+require 'rubygems'
+require 'em-zeromq'
+
+# here we initialize the eventmachine-fiendly ZeroMQ context
+ctx = EM::ZeroMQ::Context.new(1)
+
+# this will be invoiked whenver a zeromq event is triggered
+class EMTestPullHandler
+
+        # convert a uwsgi packet ro a ruby hash (in Rack format)
+        def uwsgi_to_hash(pkt)
+                ulen, = pkt[1,2].unpack('v')
+                pos = 4
+                h = Hash.new
+                while pos < ulen
+                        klen, = pkt[pos,2].unpack('v')
+                        k = pkt[pos+2, klen]
+                        pos += 2+klen
+                        vlen, = pkt[pos,2].unpack('v')
+                        v = pkt[pos+2, vlen]
+                        pos += 2+vlen
+                        h[k] = v
+                end
+                h
+        end
+
+        # this event will be triggered whenever a ZeroMQ-BlastBeat message is available
+        def on_readable(socket, parts)
+                # get the BlastBeat sid
+                sid = parts[0].copy_out_string
+                # get the BlastBeat command
+                command = parts[1].copy_out_string
+                # get the BlastBeat body
+                body = parts[2].copy_out_string
+
+                # is it a ping command ?
+                if command == 'ping'
+                        socket.send_msg(sid, 'pong', '')
+                # a uwsgi packet ?
+                elsif command == 'uwsgi'
+                        # parse the packet into a Rack hash
+                        env = uwsgi_to_hash(body)
+                        # generate HTTP headers
+                        headers = []
+                        headers << "#{env['SERVER_PROTOCOL']} 200 OK"
+                        headers << "Content-Type: text/html"
+                        headers << "Server: tremolo.rb"
+
+                        # send headers
+                        socket.send_msg(sid, 'headers', headers.join("\r\n") + "\r\n\r\n")
+                        # send body
+                        socket.send_msg(sid, 'body', '<h1>Hello World</h1>')
+                        # send body (again and again and again)
+                        socket.send_msg(sid, 'body', '<h2>Done !!!</h2>')
+                        socket.send_msg(sid, 'body', '<h3>Done !!!</h3>')
+                        socket.send_msg(sid, 'body', '<h4>Done !!!</h4>')
+                        # close the session
+                        socket.send_msg(sid, 'end', '')
+
+                # a websocket message ? (echo it !!!)
+                elsif command == 'websocket'
+                        socket.send_msg(sid, 'websocket', body)
+                end
+        end
+end
+
+# the main eventmachine loop
+EM.run do
+        dealer = ctx.socket(ZMQ::DEALER, EMTestPullHandler.new)
+        # set the identity
+        dealer.setsockopt(ZMQ::IDENTITY, 'FOOBAR1')
+        # connect to BlastBeat
+        dealer.connect('tcp://192.168.173.5:5000')
+end
+
+```
+
 ## Support
 
 you can ask for help in the official mailing-list
