@@ -292,7 +292,7 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 					bb_session_close(bbs);	
 					continue;
 				}
-				if (bbsr->written_bytes >= bbsr->content_length && bbsr->close) {
+				if (bbsr->content_length > 0 && bbsr->written_bytes >= bbsr->content_length && bbsr->close) {
 					bb_session_close(bbs);	
 					continue;
 				}
