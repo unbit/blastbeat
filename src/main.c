@@ -316,6 +316,7 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 			if (!strncmp(zmq_msg_data(&msg[2]), "headers", zmq_msg_size(&msg[2]))) {
 				http_parser parser;
 				http_parser_init(&parser, HTTP_RESPONSE);
+				parser.data = bbsr;
 				//parser.flags |= F_CONNECTION_KEEP_ALIVE;
 				int res = http_parser_execute(&parser, &bb_http_response_parser_settings, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]));
 				if (res != zmq_msg_size(&msg[3])) {
