@@ -24,10 +24,14 @@
 #define ntohll(y) (((uint64_t)ntohl(y)) << 32 | ntohl(y>>32))
 #define htonll(y) (((uint64_t)htonl(y)) << 32 | htonl(y>>32))
 
+#define BB_UUID_LEN	16
+
 
 #define BLASTBEAT_TYPE_WEBSOCKET        1
 
 struct bb_virtualhost;
+struct bb_session;
+
 struct bb_dealer {
         char *identity;
 	size_t len;
@@ -40,6 +44,11 @@ struct bb_dealer {
 struct bb_pinger {
 	ev_timer pinger;
 	struct bb_virtualhost *vhost;
+};
+
+struct bb_reader {
+	ev_io reader;
+	struct bb_session *session;
 };
 
 struct bb_virtualhost {
@@ -58,6 +67,7 @@ struct bb_http_header {
 };
 
 struct bb_session;
+struct bb_session_entry;
 
 struct bb_session_request {
         struct bb_session *bbs;
@@ -83,12 +93,25 @@ struct bb_session_request {
 };
 
 struct bb_session {
+	// this is the uuid key splitten in 2 64bit numbers
+	uint64_t uuid_part1;
+	uint64_t uuid_part2;
         int fd;
-        ev_io read_event;
+        struct bb_reader reader;
         int new_request;
 	struct bb_dealer *dealer;
         struct bb_session_request *requests_head;
         struct bb_session_request *requests_tail;
+
+	// hash table management
+	struct bb_session_entry *entry;
+	struct bb_session *prev;
+	struct bb_session *next;
+};
+
+struct bb_session_entry {
+	struct bb_session *head;
+	struct bb_session *tail;
 };
 
 struct blastbeat_server {
@@ -102,8 +125,10 @@ struct blastbeat_server {
 	int zmq_fd;
 	struct ev_loop *loop;
 
-	struct bb_session **fd_table;
 	int max_fd;
+
+	uint32_t sht_size;
+	struct bb_session_entry *sht;
 
 	ev_io event_accept;
 	ev_io event_zmq;
@@ -116,3 +141,4 @@ void bb_error(char *);
 struct bb_http_header *bb_http_req_header(struct bb_session_request *, char *, size_t);
 struct bb_dealer *bb_get_dealer(char *, size_t);
 int bb_uwsgi(struct bb_session_request *);
+struct bb_session *bb_sht_get(char *);

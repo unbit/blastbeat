@@ -76,9 +76,10 @@ void bb_zmq_send_msg(char *identity, size_t identity_len, char *sid, size_t sid_
 
 void bb_session_close(struct bb_session *bbs) {
 	int i;
-	ev_io_stop(blastbeat.loop, &bbs->read_event);
+	ev_io_stop(blastbeat.loop, &bbs->reader.reader);
 	close(bbs->fd);
-	blastbeat.fd_table[bbs->fd] = NULL;
+	// remove the session from the hash table
+	bb_sht_remove(bbs);
 	struct bb_session_request *bbsr = bbs->requests_head;
 	while(bbsr) {
 		for(i=0;i<=bbsr->header_pos;i++) {
@@ -98,7 +99,7 @@ void bb_session_close(struct bb_session *bbs) {
 
 	// if linked to a dealer, send a 'end' message
 	if (bbs->dealer) {
-		bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->fd, 4, "end", 3, "", 0);
+		bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "end", 3, "", 0);
 	}
 
 	free(bbs);
@@ -161,11 +162,8 @@ static void read_callback(struct ev_loop *loop, struct ev_io *w, int revents) {
 
 	char buf[8192];
 	ssize_t len;
-	struct bb_session *bbs = blastbeat.fd_table[w->fd];
-	// something is seriously wrong !!!
-	if (!bbs) {
-	}
-	//printf("read event from %d\n", w->fd);
+	struct bb_reader *bbr = (struct bb_reader *) w;
+	struct bb_session *bbs = bbr->session ;
 	len = read(w->fd, buf, 8192);
 	if (len > 0) {
 		// if no request is initialized, allocate it
@@ -218,11 +216,12 @@ static void accept_callback(struct ev_loop *loop, struct ev_io *w, int revents) 
 		return;
 	}
 	memset(bbs, 0, sizeof(struct bb_session));
-	blastbeat.fd_table[client] = bbs;
+	bb_sht_add(bbs);
 	bbs->fd = client;
 	bbs->new_request = 1;
-	ev_io_init(&bbs->read_event, read_callback, client, EV_READ);
-	ev_io_start(loop, &bbs->read_event);
+	ev_io_init(&bbs->reader.reader, read_callback, client, EV_READ);
+	bbs->reader.session = bbs;
+	ev_io_start(loop, &bbs->reader.reader);
 }
 
 static void pinger_cb(struct ev_loop *loop, struct ev_timer *w, int revents) {
@@ -253,7 +252,6 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 		if (zmq_events & ZMQ_POLLIN) {
 			uint64_t more = 0;
 			size_t more_size = sizeof(more);
-			int fd = -1;
 			int headers = 0;
 			int i;
 			zmq_msg_t msg[4];
@@ -272,12 +270,13 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 			// invalid message
 			if (i != 4) continue;
 
-			if (zmq_msg_size(&msg[1]) == 4) {
-				memcpy(&fd, zmq_msg_data(&msg[1]), 4);
-			}
-			if (fd < 0 || fd > blastbeat.max_fd) continue;
-			// dead session ?
-			struct bb_session *bbs = blastbeat.fd_table[fd];
+			// manage "pong" messages
+
+			// message with uuid ?
+			if (zmq_msg_size(&msg[1]) != BB_UUID_LEN) continue;
+
+			// dead/invalid session ?
+			struct bb_session *bbs = bb_sht_get(zmq_msg_data(&msg[1]));
 			if (!bbs) continue;
 
 			struct bb_session_request *bbsr = bbs->requests_tail;
@@ -285,7 +284,7 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 			if (!bbsr) continue;
 
 			if (!strncmp(zmq_msg_data(&msg[2]), "body", zmq_msg_size(&msg[2]))) {
-				ssize_t rlen = write(fd, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]));
+				ssize_t rlen = write(bbs->fd, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]));
 				if (rlen > 0) {
 					bbsr->written_bytes += rlen;
 				}
@@ -307,9 +306,9 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 				char chunk[MAX_CHUNK_STORAGE];
 				int chunk_len = snprintf(chunk, MAX_CHUNK_STORAGE, "%X\r\n", (unsigned int) zmq_msg_size(&msg[3]));
 				//printf("CHUNK: %s %d\n", chunk, (unsigned int) zmq_msg_size(&msg[3]));
-				write(fd, chunk, chunk_len);
-				write(fd, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]));
-				write(fd, "\r\n", 2);
+				write(bbs->fd, chunk, chunk_len);
+				write(bbs->fd, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]));
+				write(bbs->fd, "\r\n", 2);
 				if (zmq_msg_size(&msg[3]) == 0 && bbsr->close) {
 					bb_session_close(bbs);	
 				}
@@ -325,7 +324,7 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 					bb_session_close(bbs);	
 					continue;
 				}
-				write(fd, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]));
+				write(bbs->fd, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]));
 				continue;
 			}
 			else if (!strncmp(zmq_msg_data(&msg[2]), "end", zmq_msg_size(&msg[2]))) {
@@ -355,6 +354,7 @@ int main(int argc, char *argv[]) {
 
 	// set default values
 	blastbeat.ping_freq = 3.0;
+	blastbeat.sht_size = 65536;
 	bb_ini_config(argv[1]);
 
 	// validate config
@@ -373,11 +373,13 @@ int main(int argc, char *argv[]) {
 		bb_error_exit("unable to get the maximum file descriptors number: getrlimit()");
 	}
 
-	blastbeat.fd_table = malloc(sizeof(struct bb_session *) * rl.rlim_cur);
-	if (!blastbeat.fd_table) {
-		bb_error_exit("unable to allocate file descriptors table: malloc()");
-	}
 	blastbeat.max_fd = rl.rlim_cur;
+
+	blastbeat.sht = malloc(sizeof(struct bb_session_entry) * blastbeat.sht_size);
+	if (!blastbeat.sht) {
+		bb_error_exit("unable to allocate sessions hashtable: malloc()");
+	}
+	memset(blastbeat.sht, 0, sizeof(struct bb_session_entry) * blastbeat.sht_size);
 
 	// report config
 	struct bb_virtualhost *vhost = blastbeat.vhosts;
