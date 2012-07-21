@@ -65,7 +65,7 @@ void bb_wq_callback(struct ev_loop *loop, struct ev_io *w, int revents) {
 		if (bbwi->len == 0) goto next;
 		ssize_t wlen = write(bbs->fd, bbwi->buf+bbwi->pos, bbwi->len-bbwi->pos);
 		if (wlen < 0) {
-			if (errno == EAGAIN) {
+			if (errno == EAGAIN || errno == EWOULDBLOCK) {
 				return ;
 			}
 			bb_error("unable to write to client: write()");
