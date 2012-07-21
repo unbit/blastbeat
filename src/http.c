@@ -1,5 +1,26 @@
 #include "../blastbeat.h"
 
+int bb_manage_chunk(struct bb_session_request *bbsr, char *buf, size_t len) {
+	struct bb_session *bbs = bbsr->bbs;
+	char *chunk = malloc(MAX_CHUNK_STORAGE);
+        if (!chunk) {
+        	bb_error("unable to allocate memory for chunked response: malloc()");
+                bb_session_close(bbs);
+		return -1;
+        }
+        int chunk_len = snprintf(chunk, MAX_CHUNK_STORAGE, "%X\r\n", (unsigned int) len);
+
+        if (bb_wq_push(bbs, chunk, chunk_len, 1)) goto end;
+        if (bb_wq_push_copy(bbs, buf, len, 1)) goto end;
+        if (bb_wq_push(bbs, "\r\n", 2, 0)) goto end;
+        if (len == 0 && bbsr->close) {
+        	if (bb_wq_push_close(bbs)) goto end;
+	}
+end:
+	bb_session_close(bbs);
+	return -1;
+}
+
 static int url_cb(http_parser *parser, const char *buf, size_t len) {
         struct bb_session_request *bbsr = (struct bb_session_request *) parser->data;
         if (!bbsr->headers[0].key) {

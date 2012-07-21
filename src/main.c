@@ -77,6 +77,7 @@ void bb_zmq_send_msg(char *identity, size_t identity_len, char *sid, size_t sid_
 void bb_session_close(struct bb_session *bbs) {
 	int i;
 	ev_io_stop(blastbeat.loop, &bbs->reader.reader);
+	ev_io_stop(blastbeat.loop, &bbs->writer.writer);
 	close(bbs->fd);
 	// remove the session from the hash table
 	bb_sht_remove(bbs);
@@ -95,6 +96,16 @@ void bb_session_close(struct bb_session *bbs) {
 		struct bb_session_request *tmp_bbsr = bbsr;
 		bbsr = bbsr->next;
 		free(tmp_bbsr);
+	}
+
+	struct bb_writer_item *bbwi = bbs->writer.head;
+	while(bbwi) {
+		struct bb_writer_item *old_bbwi = bbwi;	
+		bbwi = bbwi->next;
+		if (old_bbwi->free_it) {
+			free(old_bbwi->buf);
+		}
+		free(old_bbwi);
 	}
 
 	// if linked to a dealer, send a 'end' message
@@ -221,6 +232,8 @@ static void accept_callback(struct ev_loop *loop, struct ev_io *w, int revents) 
 	bbs->new_request = 1;
 	ev_io_init(&bbs->reader.reader, read_callback, client, EV_READ);
 	bbs->reader.session = bbs;
+	ev_io_init(&bbs->writer.writer, bb_wq_callback, client, EV_WRITE);
+	bbs->writer.session = bbs;
 	ev_io_start(loop, &bbs->reader.reader);
 }
 
@@ -268,70 +281,66 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 			}
 
 			// invalid message
-			if (i != 4) continue;
+			if (i != 4) goto next;
 
 			// manage "pong" messages
 
 			// message with uuid ?
-			if (zmq_msg_size(&msg[1]) != BB_UUID_LEN) continue;
+			if (zmq_msg_size(&msg[1]) != BB_UUID_LEN) goto next;
 
 			// dead/invalid session ?
 			struct bb_session *bbs = bb_sht_get(zmq_msg_data(&msg[1]));
-			if (!bbs) continue;
+			if (!bbs) goto next;
 
 			struct bb_session_request *bbsr = bbs->requests_tail;
 			// no request running ?
-			if (!bbsr) continue;
+			if (!bbsr) goto next;
 
 			if (!strncmp(zmq_msg_data(&msg[2]), "body", zmq_msg_size(&msg[2]))) {
-				ssize_t rlen = write(bbs->fd, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]));
-				if (rlen > 0) {
-					bbsr->written_bytes += rlen;
+				if (bb_wq_push_copy(bbs,zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]), 1)) {
+					bb_session_close(bbs);
+					goto next;
 				}
-				else {
-					bb_session_close(bbs);	
-					continue;
-				}
+				bbsr->written_bytes += zmq_msg_size(&msg[2]);
 				// if Content-Length is specified, check it...
 				if (bbsr->content_length != ULLONG_MAX && bbsr->written_bytes >= bbsr->content_length && bbsr->close) {
-					bb_session_close(bbs);	
-					continue;
+					if (bb_wq_push_close(bbs))
+						bb_session_close(bbs);
 				}
+				goto next;
 			}
 			if (!strncmp(zmq_msg_data(&msg[2]), "websocket", zmq_msg_size(&msg[2]))) {
-				bb_websocket_reply(bbsr, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]));
-				continue;
+				if (bb_websocket_reply(bbsr, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3])))
+					bb_session_close(bbs);
+				goto next;
 			}
 			if (!strncmp(zmq_msg_data(&msg[2]), "chunk", zmq_msg_size(&msg[2]))) {
-				char chunk[MAX_CHUNK_STORAGE];
-				int chunk_len = snprintf(chunk, MAX_CHUNK_STORAGE, "%X\r\n", (unsigned int) zmq_msg_size(&msg[3]));
-				//printf("CHUNK: %s %d\n", chunk, (unsigned int) zmq_msg_size(&msg[3]));
-				write(bbs->fd, chunk, chunk_len);
-				write(bbs->fd, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]));
-				write(bbs->fd, "\r\n", 2);
-				if (zmq_msg_size(&msg[3]) == 0 && bbsr->close) {
-					bb_session_close(bbs);	
-				}
-				continue;
+				if (bb_manage_chunk(bbsr, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3])))
+					bb_session_close(bbs);
+				goto next;
 			}
 			if (!strncmp(zmq_msg_data(&msg[2]), "headers", zmq_msg_size(&msg[2]))) {
 				http_parser parser;
 				http_parser_init(&parser, HTTP_RESPONSE);
 				parser.data = bbsr;
-				//parser.flags |= F_CONNECTION_KEEP_ALIVE;
 				int res = http_parser_execute(&parser, &bb_http_response_parser_settings, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]));
+				// invalid headers ?
 				if (res != zmq_msg_size(&msg[3])) {
 					bb_session_close(bbs);	
-					continue;
+					goto next;
 				}
-				write(bbs->fd, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]));
-				continue;
+				if (bb_wq_push_copy(bbs, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]), 1))
+					bb_session_close(bbs);
+				goto next;
 			}
 			else if (!strncmp(zmq_msg_data(&msg[2]), "end", zmq_msg_size(&msg[2]))) {
-				bb_session_close(bbs);
-				continue;
+				if (bb_wq_push_close(bbs)) {
+					bb_session_close(bbs);	
+				}
+				goto next;
 			}
 
+next:
 			zmq_msg_close(&msg[0]);
 			zmq_msg_close(&msg[1]);
 			zmq_msg_close(&msg[2]);

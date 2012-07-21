@@ -79,16 +79,14 @@ void bb_sht_add(struct bb_session *bbs) {
 	if (!bbse->head) {
 		bbs->prev = NULL;
 		bbse->head = bbs;
-		bbse->tail = bbs;
 	}
 	else {
-		printf("COLLISION!!\n");
 		bbs->prev = bbse->tail;
 		bbse->tail->next = bbs;
-		bbse->tail = bbs;
 	}
 	bbs->entry = bbse;
 	bbs->next = NULL;
+	bbse->tail = bbs;
 }
 
 void bb_sht_remove(struct bb_session *bbs) {

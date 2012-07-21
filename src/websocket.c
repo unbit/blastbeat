@@ -31,51 +31,25 @@ static void sha1(char *body, size_t len, char *dst) {
 
 
 int bb_send_websocket_handshake(struct bb_session_request *bbsr) {
-        char sha[20];
+	char sha[20];
         struct bb_http_header *swk = bb_http_req_header(bbsr, "sec-websocket-key", 17);
         if (!swk) return -1;
         struct bb_http_header *origin = bb_http_req_header(bbsr, "origin", 6);
         sha1(swk->value, swk->vallen, sha);
         size_t b_len = 20;
         char *b64 = base64(sha, &b_len);
-        char http_major = '0' + bbsr->parser.http_major;
-        char http_minor = '0' + bbsr->parser.http_minor;
+        bbsr->http_major = '0' + bbsr->parser.http_major;
+        bbsr->http_minor = '0' + bbsr->parser.http_minor;
 
-        struct iovec iov[8];
+	if (bb_wq_push(bbsr->bbs, "HTTP/", 5, 0)) return -1;
+	if (bb_wq_push(bbsr->bbs, &bbsr->http_major, 1, 0)) return -1;
+	if (bb_wq_push(bbsr->bbs, ".", 1, 0)) return -1;
+	if (bb_wq_push(bbsr->bbs, &bbsr->http_minor, 1, 0)) return -1;
+	if (bb_wq_push(bbsr->bbs, " 101 WebSocket Protocol Handshake\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ", 98, 0)) return -1;
+	if (bb_wq_push(bbsr->bbs, b64, b_len, 1)) return -1;
+	if (bb_wq_push(bbsr->bbs, "\r\n\r\n", 4, 0)) return -1;
 
-        iov[0].iov_base = "HTTP/";
-        iov[0].iov_len = 5;
-
-        iov[1].iov_base = &http_major;
-        iov[1].iov_len = 1;
-
-        iov[2].iov_base = ".";
-        iov[2].iov_len = 1;
-
-        iov[3].iov_base = &http_minor;
-        iov[3].iov_len = 1;
-
-        iov[4].iov_base = " 101 WebSocket Protocol Handshake\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\n";
-        iov[4].iov_len = 76;
-
-        iov[5].iov_base = "Sec-WebSocket-Accept: ";
-        iov[5].iov_len = 22;
-
-        iov[6].iov_base = b64;
-        iov[6].iov_len = b_len;
-
-        iov[7].iov_base = "\r\n\r\n";
-        iov[7].iov_len = 4;
-
-        for(;;) {
-                ssize_t wlen = writev(bbsr->bbs->fd, iov, 8);
-                if (wlen < 0) {
-                        if (errno == EAGAIN) continue;
-                        bb_error("writev()");
-                }
-                break;
-        }
-
+	return 0;
 }
 
 int bb_manage_websocket_header(struct bb_session_request *bbsr, char byte1, char byte2) {
@@ -86,12 +60,7 @@ int bb_manage_websocket_header(struct bb_session_request *bbsr, char byte1, char
 		return 0;
 	}
 	if (opcode == 0x09) {
-		char pong[2];
-		pong[0] = 0xA;
-		pong[1] = 0;
-		if (write(bbsr->bbs->fd, pong, 2) != 2) {
-			bb_error("pong write()");
-		}	
+		if (bb_wq_push(bbsr->bbs, "\xA\0", 2, 0)) return -1;
 		return 0;
 	}
 	return -1;
@@ -185,38 +154,51 @@ parser:
 
 
 
-int bb_websocket_reply(struct bb_session_request *bbsr, char *buf, size_t len) {
+int bb_websocket_reply(struct bb_session_request *bbsr, char *msg, size_t len) {
         char header[2];
         uint16_t len16;
         uint64_t len64;
-        struct iovec iov[3];
+	size_t pkt_len = len + 2;
+
         header[0] = 0x81;
 
         if (len < 126) {
                 header[1] = len;
-                iov[1].iov_base = "";
-                iov[1].iov_len = 0;
         }
         else if (len < (1 << 16)) {
                 header[1] = 126;
                 len16 = htons(len);
-                iov[1].iov_base = &len16;
-                iov[1].iov_len = 2;
+		pkt_len += 2;
         }
         else if (len < ((uint64_t)1 << 63)) {
                 header[1] = 127;
                 len64 = htonll(len);
-                iov[1].iov_base = &len64;
-                iov[1].iov_len = 8;
+		pkt_len += 8;
         }
+	else {
+		return -1;
+	}
 
-        iov[0].iov_base = header;
-        iov[0].iov_len = 2;
+	char *buf = malloc(pkt_len);
+	if (!buf) {
+		bb_error("unable to allocate memory for websocket reply: malloc()");
+		return -1;
+	}
 
-        iov[2].iov_base = buf;
-        iov[2].iov_len = len;
+	memcpy(buf, header, 2);
+	if (header[1] == 126) {
+		memcpy(buf + 2, &len16, 2);
+		memcpy(buf + 4, msg, len);
+	}
+	else if (header[1] == 127) {
+		memcpy(buf + 2, &len64, 8);
+		memcpy(buf + 10, msg, len);
+	}
+	else {
+		memcpy(buf + 2, msg, len);
+	}
 
-        ssize_t wlen = writev(bbsr->bbs->fd, iov, 3);
-        // MANAGE THAT
+	if (bb_wq_push(bbsr->bbs, buf, pkt_len, 1)) return -1;
+	return 0;
 }
 

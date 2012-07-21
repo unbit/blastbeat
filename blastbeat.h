@@ -76,6 +76,8 @@ struct bb_session_request {
         int last_was_value;
         int close;
         int type;
+	char http_major;
+	char http_minor;
         uint64_t content_length;
         uint64_t written_bytes;
 	char *uwsgi_buf;
@@ -92,6 +94,23 @@ struct bb_session_request {
         struct bb_session_request *next;
 };
 
+struct bb_writer_item {
+	char *buf;
+	off_t pos;
+	size_t len;
+	int free_it;
+	int close_it;
+	struct bb_writer_item *prev;
+	struct bb_writer_item *next;
+};
+
+struct bb_writer {
+	ev_io writer;
+	struct bb_session *session;
+	struct bb_writer_item *head;
+	struct bb_writer_item *tail;
+};
+
 struct bb_session {
 	// this is the uuid key splitten in 2 64bit numbers
 	uint64_t uuid_part1;
@@ -102,6 +121,9 @@ struct bb_session {
 	struct bb_dealer *dealer;
         struct bb_session_request *requests_head;
         struct bb_session_request *requests_tail;
+
+	// write queue
+	struct bb_writer writer;
 
 	// hash table management
 	struct bb_session_entry *entry;
@@ -142,3 +164,5 @@ struct bb_http_header *bb_http_req_header(struct bb_session_request *, char *, s
 struct bb_dealer *bb_get_dealer(char *, size_t);
 int bb_uwsgi(struct bb_session_request *);
 struct bb_session *bb_sht_get(char *);
+void bb_wq_callback(struct ev_loop *, struct ev_io *, int);
+int bb_wq_push(struct bb_session *, char *, size_t, int);
