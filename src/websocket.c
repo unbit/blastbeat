@@ -67,7 +67,7 @@ int bb_manage_websocket_header(struct bb_session_request *bbsr, char byte1, char
 }
 
 int bb_websocket_pass(struct bb_session_request *bbsr, char *buf, ssize_t len) {
-        bb_zmq_send_msg(bbsr->bbs->dealer->identity, bbsr->bbs->dealer->len, (char *) &bbsr->bbs->fd, 4, "websocket", 9, buf, len);
+        bb_zmq_send_msg(bbsr->bbs->dealer->identity, bbsr->bbs->dealer->len, (char *) &bbsr->bbs->uuid_part1, BB_UUID_LEN, "websocket", 9, buf, len);
 }
 
 int bb_manage_websocket(struct bb_session_request *bbsr, char *buf, ssize_t len) {
