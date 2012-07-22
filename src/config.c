@@ -31,6 +31,16 @@ void bb_main_config_add(char *key, char *value) {
 		return;
 	}
 
+	if (!strcmp(key, "uid")) {
+		blastbeat.uid = value;
+		return;
+	}
+
+	if (!strcmp(key, "gid")) {
+		blastbeat.gid = value;
+		return;
+	}
+
 }
 
 static struct bb_virtualhost *get_or_create_vhost(char *vhostname) {

@@ -14,6 +14,8 @@
 #include <openssl/buffer.h>
 #include <openssl/evp.h>
 #include <sys/resource.h>
+#include <pwd.h>
+#include <grp.h>
 
 #define MAX_HEADERS 100
 
@@ -142,6 +144,9 @@ struct blastbeat_server {
 	char *zmq;
 
 	float ping_freq;
+
+	char *uid;
+	char *gid;
 
 	void *router;
 	int zmq_fd;

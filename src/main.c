@@ -353,6 +353,38 @@ next:
 	}
 }
 
+static void drop_privileges() {
+
+	// setgid
+	struct group *grp = getgrnam(blastbeat.gid);
+	if (grp) {
+		if (setgid(grp->gr_gid)) {
+			bb_error_exit("unable to drop privileges: setgid()");
+		}
+	}
+	else {
+		if (setgid((gid_t)atoi(blastbeat.gid))) {
+			bb_error_exit("unable to drop privileges: setgid()");
+		}
+	}
+
+	// setuid
+	struct passwd *pwd = getpwnam(blastbeat.uid);
+	if (pwd) {
+		if (setuid(pwd->pw_uid)) {
+			bb_error_exit("unable to drop privileges: setuid()");
+		}
+	}
+	else {
+		if (setuid((uid_t)atoi(blastbeat.uid))) {
+			bb_error_exit("unable to drop privileges: setuid()");
+		}
+	}
+
+	fprintf(stdout,"uid: %d\n", (int) getuid());
+	fprintf(stdout,"gid: %d\n", (int) getgid());
+
+};
 
 int main(int argc, char *argv[]) {
 
@@ -364,6 +396,8 @@ int main(int argc, char *argv[]) {
 	// set default values
 	blastbeat.ping_freq = 3.0;
 	blastbeat.sht_size = 65536;
+	blastbeat.uid = "nobody";
+	blastbeat.gid = "nogroup";
 	bb_ini_config(argv[1]);
 
 	// validate config
@@ -450,6 +484,8 @@ int main(int argc, char *argv[]) {
 	if (zmq_getsockopt(blastbeat.router, ZMQ_FD, &blastbeat.zmq_fd, &opt_len)) {
 		bb_error_exit("unable to configure zmq socket: zmq_getsockopt()");
 	}
+
+	drop_privileges();
 
 	ev_io_init(&blastbeat.event_accept, accept_callback, server, EV_READ);	
 	ev_io_start(blastbeat.loop, &blastbeat.event_accept);
