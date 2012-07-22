@@ -309,16 +309,19 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 				}
 				goto next;
 			}
+
 			if (!strncmp(zmq_msg_data(&msg[2]), "websocket", zmq_msg_size(&msg[2]))) {
 				if (bb_websocket_reply(bbsr, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3])))
 					bb_session_close(bbs);
 				goto next;
 			}
+
 			if (!strncmp(zmq_msg_data(&msg[2]), "chunk", zmq_msg_size(&msg[2]))) {
 				if (bb_manage_chunk(bbsr, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3])))
 					bb_session_close(bbs);
 				goto next;
 			}
+
 			if (!strncmp(zmq_msg_data(&msg[2]), "headers", zmq_msg_size(&msg[2]))) {
 				http_parser parser;
 				http_parser_init(&parser, HTTP_RESPONSE);
@@ -333,7 +336,23 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 					bb_session_close(bbs);
 				goto next;
 			}
-			else if (!strncmp(zmq_msg_data(&msg[2]), "end", zmq_msg_size(&msg[2]))) {
+
+			if (!strncmp(zmq_msg_data(&msg[2]), "retry", zmq_msg_size(&msg[2]))) {
+				if (bbs->hops >= blastbeat.max_hops) {
+					bb_session_close(bbs);
+					goto next;	
+				}
+				bbs->dealer = bb_get_dealer(bbs->dealer->vhost->name, bbs->dealer->vhost->len);
+                		if (!bbs->dealer) {
+					bb_session_close(bbs);
+					goto next;	
+                		}
+				bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "uwsgi", 5, bbsr->uwsgi_buf, bbsr->uwsgi_pos);
+				bbs->hops++;
+				goto next;
+			}
+
+			if (!strncmp(zmq_msg_data(&msg[2]), "end", zmq_msg_size(&msg[2]))) {
 				if (bb_wq_push_close(bbs)) {
 					bb_session_close(bbs);	
 				}
@@ -402,6 +421,7 @@ int main(int argc, char *argv[]) {
 	blastbeat.sht_size = 65536;
 	blastbeat.uid = "nobody";
 	blastbeat.gid = "nogroup";
+	blastbeat.max_hops = 10;
 	bb_ini_config(argv[1]);
 
 	// validate config

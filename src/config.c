@@ -41,6 +41,11 @@ void bb_main_config_add(char *key, char *value) {
 		return;
 	}
 
+	if (!strcmp(key, "max-hops")) {
+		blastbeat.max_hops = atoi(value);
+		return;
+	}
+
 }
 
 static struct bb_virtualhost *get_or_create_vhost(char *vhostname) {

@@ -123,6 +123,9 @@ struct bb_session {
 	struct bb_dealer *dealer;
         struct bb_session_request *requests_head;
         struct bb_session_request *requests_tail;
+		
+	// sanity check for 'retry' command
+	uint64_t hops;
 
 	// write queue
 	struct bb_writer writer;
@@ -144,6 +147,7 @@ struct blastbeat_server {
 	char *zmq;
 
 	float ping_freq;
+	int max_hops;
 
 	char *uid;
 	char *gid;
