@@ -31,6 +31,8 @@ header)
 
 * pong (response, confirm a backend presence)
 
+* retry (response, ask BlastBeat to make the same request to another node REMEMBER: there is a maximum of 'retry' message per-session)
+
 
 ## building it
 
