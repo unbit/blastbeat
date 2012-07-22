@@ -355,6 +355,8 @@ next:
 
 static void drop_privileges() {
 
+	if (getuid() != 0) goto print;
+
 	// setgid
 	struct group *grp = getgrnam(blastbeat.gid);
 	if (grp) {
@@ -380,6 +382,8 @@ static void drop_privileges() {
 			bb_error_exit("unable to drop privileges: setuid()");
 		}
 	}
+
+print:
 
 	fprintf(stdout,"uid: %d\n", (int) getuid());
 	fprintf(stdout,"gid: %d\n", (int) getgid());
