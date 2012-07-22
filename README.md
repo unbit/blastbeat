@@ -100,8 +100,9 @@ has completed the connection, you will start receiving messages of type 'websock
 
 ## using the sid (for concurrency)
 
-The sid (the first part of blastbeat zeromq messages) is a binary value of variable size. The developer should not 
+The sid (the first part of blastbeat zeromq messages) is a binary value of variable size (normally it is a 128bit UUID). The developer should not 
 try to parse it, instead he should use it as the 'key' for a pool of threads/coroutine/greenthreads/whateveryouwant.
+The sid should be able to identify a specific request even on a pool of servers (that is why UUID is used)
 
 This is an example (using gevent and gevent-zeromq) of high-concurrency scenario:
 
@@ -306,13 +307,14 @@ end
 
 * backends load balancing is incomplete
 
-* drop privileges
 
 ## TODO
 
 * uWSGI Emperor support
 
 * graceful reloads
+
+* SPDY ?
 
 ## Support
 
