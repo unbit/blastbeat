@@ -148,9 +148,7 @@ struct bb_session_entry {
 union bb_addr {
 	struct sockaddr in;
 	struct sockaddr_in in4;
-#ifdef AF_INET6
 	struct sockaddr_in6 in6;
-#endif
 };
 
 struct bb_acceptor {

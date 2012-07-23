@@ -34,7 +34,6 @@ static struct bb_acceptor *bb_get_acceptor(char *addr, int shared) {
                 exit(1);
         }
         *colon = 0;
-#ifdef AF_INET6
 	if (count_chars(addr, ':') > 1) {
 		char *percent = strchr(addr, '%');
 		if (percent) {
@@ -51,7 +50,6 @@ static struct bb_acceptor *bb_get_acceptor(char *addr, int shared) {
 		bba.in6.sin6_port = htons(atoi(colon+1));
 		goto check;
 	}
-#endif
 	if (inet_pton(AF_INET, addr, &bba.in4.sin_addr) <= 0) {
 		bb_error_exit("unable to parse IPv4 address: inet_pton()");
 	}
