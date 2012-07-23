@@ -75,6 +75,9 @@ zmq = tcp://0.0.0.0:5000
 
 [blastbeat:localhost:8000]
 node = foobar1
+
+[blastbeat:secure.local]
+node = foobar2
 bind = 0.0.0.0:443
 ```
 
