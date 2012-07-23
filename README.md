@@ -65,6 +65,19 @@ run the server with:
 The blastbeat server will start receiving HTTP request to the 8080 port and will forward them to a backend node
 connected to the zmq router on port 5000.
 
+
+You can bind specific virtualhost to specific address (as required by https) including bind options in the virtualhost config
+
+```ini
+[blastbeat]
+bind = 0.0.0.0:8080
+zmq = tcp://0.0.0.0:5000
+
+[blastbeat:localhost:8000]
+node = foobar1
+bind = 0.0.0.0:443
+```
+
 ## backend nodes
 
 Backend nodes talk will blastbeat via a zmq dealer socket. That socket has to set a valid identity based on the node name
