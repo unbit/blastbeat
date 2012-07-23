@@ -23,7 +23,7 @@ static int count_chars(char *str, char what) {
 static void bb_main_config_add(char *, char *);
 static void bb_vhost_config_add(char *, char *, char *);
 
-static struct bb_acceptor *bb_get_acceptor(char *addr, int shared) {
+static struct bb_acceptor *bb_get_acceptor(char *addr, int shared, void (*func)(struct bb_acceptor *)) {
 	struct bb_acceptor *last_acceptor, *acceptor;
 	union bb_addr bba;
 	memset(&bba, 0, sizeof(bba));
@@ -82,6 +82,10 @@ check:
 	}
 	else {
 		last_acceptor->next = acceptor;
+	}
+
+	if (func) {
+		func(acceptor);
 	}
 
 	return acceptor;
@@ -318,10 +322,83 @@ next:
 	}
 }
 
+static void bb_ssl_info_cb(SSL const *ssl, int where, int ret) {
+	if (where & SSL_CB_HANDSHAKE_DONE) {
+                if (ssl->s3) {
+                        ssl->s3->flags |= SSL3_FLAGS_NO_RENEGOTIATE_CIPHERS;
+                }
+        }
+}
+
+static void bb_socket_ssl(struct bb_acceptor *acceptor) {
+
+	if (!blastbeat.ssl_initialized) {
+		OPENSSL_config(NULL);
+		SSL_library_init();
+		SSL_load_error_strings();
+		OpenSSL_add_all_algorithms();
+		blastbeat.ssl_initialized = 1;
+	}
+
+	acceptor->ctx = SSL_CTX_new(SSLv23_server_method());
+	if (!acceptor->ctx) {
+		fprintf(stderr, "unable to initialize SSL context: SSL_CTX_new()");
+		exit(1);
+	}
+
+	long ssloptions = SSL_OP_NO_SSLv2 | SSL_OP_ALL | SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION;
+	// disable compression (if possibile)
+#ifdef SSL_OP_NO_COMPRESSION
+        ssloptions |= SSL_OP_NO_COMPRESSION;
+#endif
+        SSL_CTX_set_options(acceptor->ctx, ssloptions);
+
+	// release/reuse buffers as soon as possibile
+#ifdef SSL_MODE_RELEASE_BUFFERS
+        SSL_CTX_set_mode(acceptor->ctx, SSL_MODE_RELEASE_BUFFERS);
+#endif
+	
+	if (SSL_CTX_set_cipher_list(acceptor->ctx, "HIGH") == 0) {
+		fprintf(stderr,"unable to set SSL ciphers: SSL_CTX_set_cipher_list()");
+        	exit(1);
+	}
+
+	SSL_CTX_set_options(acceptor->ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
+
+	SSL_CTX_set_info_callback(acceptor->ctx, bb_ssl_info_cb);
+
+	SSL_CTX_set_session_cache_mode(acceptor->ctx, SSL_SESS_CACHE_SERVER);
+}
+
+void bb_vhost_propagate_opt(struct bb_virtualhost *vhost, size_t offset, char *value) {
+	struct bb_acceptor *bba = blastbeat.acceptors;
+	while(bba) {
+		struct bb_virtualhost *bbv = bba->vhosts;
+		while(bbv) {
+			if (bbv->name == vhost->name) {
+				char *off = (char *) bbv + offset;
+        			char **ptr = (char **) off;
+        			*ptr = value;
+			}
+			bbv = bbv->next;
+		}
+		bba = bba->next;
+	}
+
+	char *off = (char *) vhost + offset;
+	char **ptr = &off;
+	*ptr = value;
+}
+
 static void bb_main_config_add(char *key, char *value) {
 
         is_opt( "bind") {
-                bb_get_acceptor(value, 1);
+                bb_get_acceptor(value, 1, NULL);
+                return;
+        }
+
+        is_opt( "bind-ssl") {
+                bb_get_acceptor(value, 1, bb_socket_ssl);
                 return;
         }
 
@@ -356,8 +433,24 @@ static void bb_vhost_config_add(char *vhostname, char *key, char *value) {
         struct bb_virtualhost *vhost = get_or_create_vhost(vhostname);
 
         is_opt( "bind") {
-                struct bb_acceptor *acceptor = bb_get_acceptor(value, 0);
+                struct bb_acceptor *acceptor = bb_get_acceptor(value, 0, NULL);
 		bb_push_to_acceptor(acceptor, vhost);
+                return;
+        }
+
+        is_opt( "bind-ssl") {
+                struct bb_acceptor *acceptor = bb_get_acceptor(value, 0, bb_socket_ssl);
+		bb_push_to_acceptor(acceptor, vhost);
+                return;
+        }
+
+        is_opt( "certificate") {
+		bb_vhost_propagate_opt(vhost, offsetof(struct bb_virtualhost, ssl_certificate), value);
+                return;
+        }
+
+        is_opt( "key") {
+		bb_vhost_propagate_opt(vhost, offsetof(struct bb_virtualhost, ssl_key), value);
                 return;
         }
 

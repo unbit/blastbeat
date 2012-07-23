@@ -13,6 +13,9 @@
 #include <openssl/bio.h>
 #include <openssl/buffer.h>
 #include <openssl/evp.h>
+#include "openssl/conf.h"
+#include "openssl/ssl.h"
+#include <openssl/err.h>
 #include <sys/resource.h>
 #include <pwd.h>
 #include <grp.h>
@@ -59,6 +62,10 @@ struct bb_virtualhost {
 	char *name;
 	size_t len;
 	struct bb_acceptor *acceptors;
+
+	char *ssl_certificate;
+	char *ssl_key;
+
 	struct bb_pinger pinger;
 	struct bb_dealer *dealers;
 	struct bb_virtualhost *next;
@@ -156,6 +163,7 @@ struct bb_acceptor {
 	char *name;
 	int shared;
 	union bb_addr addr;
+	SSL_CTX *ctx;
 	struct bb_virtualhost *vhosts;
 	struct bb_acceptor *next;
 };
@@ -175,6 +183,10 @@ struct blastbeat_server {
 	struct ev_loop *loop;
 
 	int max_fd;
+
+	int ssl_initialized;
+	char *ssl_certificate;
+	char *ssl_key;
 
 	uint32_t sht_size;
 	struct bb_session_entry *sht;

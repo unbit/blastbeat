@@ -405,7 +405,7 @@ static void drop_privileges() {
 
 print:
 
-	fprintf(stdout,"uid: %d\n", (int) getuid());
+	fprintf(stdout,"\nuid: %d\n", (int) getuid());
 	fprintf(stdout,"gid: %d\n", (int) getgid());
 
 };
@@ -427,7 +427,7 @@ static void bb_acceptor_bind(struct bb_acceptor *acceptor) {
         }
 
         if (bind(server, &acceptor->addr.in, sizeof(union bb_addr))) {
-                bb_error_exit("unable to bind to HTTP address: bind()");
+                bb_error_exit("unable to bind to address: bind()");
         }
 
         if (listen(server, 100) < 0) {
@@ -507,6 +507,57 @@ static void bb_acceptors_fix() {
 	}
 }
 
+static void bb_assign_ssl(struct bb_acceptor *acceptor, struct bb_virtualhost *vhost) {
+
+	if (!acceptor->ctx) return;
+
+	char *certificate = blastbeat.ssl_certificate;
+	if (vhost->ssl_certificate) certificate = vhost->ssl_certificate;
+
+	char *key = blastbeat.ssl_key;
+	if (vhost->ssl_key) key = vhost->ssl_key;
+
+	if (!certificate) {
+		fprintf(stderr,"you have not specified a valid SSL certificate\n");
+		exit(1);
+	}
+
+	if (!key) {
+		fprintf(stderr,"you have not specified a valid SSL key\n");
+		exit(1);
+	}
+
+	if (SSL_CTX_use_certificate_file(acceptor->ctx, certificate, SSL_FILETYPE_PEM) <= 0) {
+                fprintf(stderr, "unable to assign ssl certificate %s\n", certificate);
+                exit(1);
+        }	
+
+	BIO *bio = BIO_new_file(certificate, "r");
+        if (bio) {
+                DH *dh = PEM_read_bio_DHparams(bio, NULL, NULL, NULL);
+                BIO_free(bio);
+                if (dh) {
+                        SSL_CTX_set_tmp_dh(acceptor->ctx, dh);
+                        DH_free(dh);
+#if OPENSSL_VERSION_NUMBER >= 0x0090800fL
+#ifndef OPENSSL_NO_ECDH
+#ifdef NID_X9_62_prime256v1
+                        EC_KEY *ecdh = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
+                        SSL_CTX_set_tmp_ecdh(acceptor->ctx, ecdh);
+                        EC_KEY_free(ecdh);
+#endif
+#endif
+#endif
+                }
+        }
+
+        if (SSL_CTX_use_PrivateKey_file(acceptor->ctx, key, SSL_FILETYPE_PEM) <= 0) {
+                fprintf(stderr, "unable to assign key file %s\n", key);
+                exit(1);
+        }
+
+}
+
 int main(int argc, char *argv[]) {
 
 	if (argc < 2) {
@@ -546,7 +597,7 @@ int main(int argc, char *argv[]) {
 
 	blastbeat.loop = EV_DEFAULT;
 
-	// report config
+	// report config, bind sockets and assign ssl keys/certificates
 	struct bb_acceptor *acceptor = blastbeat.acceptors;
 	fprintf(stdout,"*** starting BlastBeat ***\n");
 	while(acceptor) {
@@ -555,6 +606,7 @@ int main(int argc, char *argv[]) {
 		struct bb_virtualhost *vhost = acceptor->vhosts;
 		while(vhost) {
 			fprintf(stdout, "%s\n", vhost->name);
+			bb_assign_ssl(acceptor, vhost);
 			vhost = vhost->next;
 		}
 		acceptor = acceptor->next;
