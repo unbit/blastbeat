@@ -53,9 +53,12 @@ struct bb_reader {
 	struct bb_session *session;
 };
 
+struct bb_acceptor;
+
 struct bb_virtualhost {
 	char *name;
 	size_t len;
+	struct bb_acceptor *acceptors;
 	struct bb_pinger pinger;
 	struct bb_dealer *dealers;
 	struct bb_virtualhost *next;
@@ -120,6 +123,7 @@ struct bb_session {
         int fd;
         struct bb_reader reader;
         int new_request;
+	struct bb_acceptor *acceptor;
 	struct bb_dealer *dealer;
         struct bb_session_request *requests_head;
         struct bb_session_request *requests_tail;
@@ -141,9 +145,25 @@ struct bb_session_entry {
 	struct bb_session *tail;
 };
 
+union bb_addr {
+	struct sockaddr in;
+	struct sockaddr_in in4;
+#ifdef AF_INET6
+	struct sockaddr_in6 in6;
+#endif
+};
+
+struct bb_acceptor {
+	ev_io acceptor;
+	char *name;
+	int shared;
+	union bb_addr addr;
+	struct bb_virtualhost *vhosts;
+	struct bb_acceptor *next;
+};
+
 struct blastbeat_server {
-	char *addr;
-	unsigned short port;
+	struct bb_acceptor *acceptors;
 	char *zmq;
 
 	float ping_freq;
@@ -161,16 +181,14 @@ struct blastbeat_server {
 	uint32_t sht_size;
 	struct bb_session_entry *sht;
 
-	ev_io event_accept;
 	ev_io event_zmq;
 
-	struct bb_virtualhost *vhosts;
 };
 
 
 void bb_error(char *);
 struct bb_http_header *bb_http_req_header(struct bb_session_request *, char *, size_t);
-struct bb_dealer *bb_get_dealer(char *, size_t);
+struct bb_dealer *bb_get_dealer(struct bb_acceptor *, char *, size_t);
 int bb_uwsgi(struct bb_session_request *);
 struct bb_session *bb_sht_get(char *);
 void bb_wq_callback(struct ev_loop *, struct ev_io *, int);

@@ -8,48 +8,93 @@ extern struct blastbeat_server blastbeat;
 	This memory must not be freed for all the server lifecycle
 */
 
-void bb_main_config_add(char *key, char *value) {
+#define is_opt(x) if (!strcmp(key, x))
 
-	if (!strcmp(key, "bind")) {
-		char *colon = strchr(value, ':');
-		if (!colon) {
-			fprintf(stderr,"config error: invalid 'bind' syntax, must be addr:port\n");
+static int count_chars(char *str, char what) {
+	char *ptr = str;
+	int count = 0;
+	while(*ptr++) {
+		if (*ptr == what)
+			count++;
+	}
+	return count;
+} 
+
+static void bb_main_config_add(char *, char *);
+static void bb_vhost_config_add(char *, char *, char *);
+
+static struct bb_acceptor *bb_get_acceptor(char *addr, int shared) {
+	struct bb_acceptor *last_acceptor, *acceptor;
+	union bb_addr bba;
+	memset(&bba, 0, sizeof(bba));
+
+	char *colon = strrchr(addr, ':');
+        if (!colon) {
+        	fprintf(stderr,"config error: invalid 'bind' syntax, must be addr:port\n");
+                exit(1);
+        }
+        *colon = 0;
+#ifdef AF_INET6
+	if (count_chars(addr, ':') > 1) {
+		char *percent = strchr(addr, '%');
+		if (percent) {
+			bba.in6.sin6_scope_id = if_nametoindex(percent+1);
+			*percent = 0;
 		}
-		*colon = 0;
-		blastbeat.addr = value;
-		blastbeat.port = atoi(colon+1);
-		return;
+		if (inet_pton(AF_INET6, addr, &bba.in6.sin6_addr) <= 0) {
+			bb_error_exit("unable to parse IPv6 address: inet_pton()");
+		}
+		if (percent) {
+			*percent = '%';
+		}
+		bba.in6.sin6_family = AF_INET6;
+		bba.in6.sin6_port = htons(atoi(colon+1));
+		goto check;
+	}
+#endif
+	if (inet_pton(AF_INET, addr, &bba.in4.sin_addr) <= 0) {
+		bb_error_exit("unable to parse IPv4 address: inet_pton()");
+	}
+	bba.in4.sin_family = AF_INET;
+	bba.in4.sin_port = htons(atoi(colon+1));
+
+check:
+	acceptor = blastbeat.acceptors;
+	while(acceptor) {
+		// acceptor already configured ?
+		if (!memcmp(&acceptor->addr, &bba, sizeof(bba)))
+			return acceptor;
+		last_acceptor = acceptor;
+		acceptor = acceptor->next;
 	}
 
-	if (!strcmp(key, "zmq")) {
-		blastbeat.zmq = value;
-		return;
+	acceptor = malloc(sizeof(struct bb_acceptor));
+	if (!acceptor) {
+		bb_error_exit("unable to allocate memory for the new aceptor: malloc()");
+	}	
+	memset(acceptor, 0, sizeof(struct bb_acceptor));
+	acceptor->shared = shared;
+	acceptor->name = addr;
+	// fix address name
+	*colon = ':';
+	memcpy(&acceptor->addr, &bba, sizeof(bba));
+
+	if (!blastbeat.acceptors) {
+		blastbeat.acceptors = acceptor;
+	}
+	else {
+		last_acceptor->next = acceptor;
 	}
 
-	if (!strcmp(key, "ping-freq")) {
-		blastbeat.ping_freq = atof(value);
-		return;
-	}
-
-	if (!strcmp(key, "uid")) {
-		blastbeat.uid = value;
-		return;
-	}
-
-	if (!strcmp(key, "gid")) {
-		blastbeat.gid = value;
-		return;
-	}
-
-	if (!strcmp(key, "max-hops")) {
-		blastbeat.max_hops = atoi(value);
-		return;
-	}
-
+	return acceptor;
 }
 
 static struct bb_virtualhost *get_or_create_vhost(char *vhostname) {
-	struct bb_virtualhost *last_vhost = NULL,*vhost = blastbeat.vhosts;
+	if (!blastbeat.acceptors) {
+		fprintf(stderr, "you need to configure at leats one bind directive\n");
+		exit(1);
+	}
+	struct bb_virtualhost *last_vhost = NULL,*vhost = blastbeat.acceptors->vhosts;
 	// do not be afraid of using strcmp() as the config parser is the only one
 	// allowed to create vhost
 	while(vhost) {
@@ -72,7 +117,7 @@ static struct bb_virtualhost *get_or_create_vhost(char *vhostname) {
 		last_vhost->next = vhost;
 	}
 	else {
-		blastbeat.vhosts = vhost;
+		blastbeat.acceptors->vhosts = vhost;
 	}
 	return vhost;
 }
@@ -102,17 +147,6 @@ static struct bb_dealer *create_dealer(struct bb_virtualhost *vhost, char *node)
 		vhost->dealers = bbd;
 	}
 	return bbd;
-}
-
-void bb_vhost_config_add(char *vhostname, char *key, char *value) {
-	struct bb_virtualhost *vhost = get_or_create_vhost(vhostname);
-
-	if (!strcmp(key, "node")) {
-		create_dealer(vhost, value);
-		return;
-	}
-
-	return;
 }
 
 static void ini_rstrip(char *line) {
@@ -256,3 +290,84 @@ void bb_ini_config(char *file) {
 	}
 
 }
+
+static void bb_push_to_acceptor(struct bb_acceptor *acceptor, struct bb_virtualhost *vhost) {
+	struct bb_virtualhost *vhosts = acceptor->vhosts;
+	if (!vhosts) {
+		struct bb_virtualhost *vcopy = malloc(sizeof(struct bb_virtualhost));
+		if (!vcopy) {
+			bb_error_exit("unable to allocate memory for virtualhost: malloc()");
+		}
+		memcpy(vcopy, vhost, sizeof(struct bb_virtualhost));
+		vcopy->next = NULL;
+		acceptor->vhosts = vcopy;
+		return ;
+	}
+	
+	while(vhosts) {
+		if (!strcmp(vhost->name, vhosts->name)) return;
+		if (!vhosts->next) {
+			vhosts->next = malloc(sizeof(struct bb_virtualhost));
+			if (!vhosts->next) {
+                        	bb_error_exit("unable to allocate memory for virtualhost: malloc()");
+                	}
+			memcpy(vhosts->next, vhost, sizeof(struct bb_virtualhost));
+			vhosts->next->next = NULL;
+			return;
+		}
+next:
+		vhosts = vhosts->next;
+	}
+}
+
+static void bb_main_config_add(char *key, char *value) {
+
+        is_opt( "bind") {
+                bb_get_acceptor(value, 1);
+                return;
+        }
+
+        is_opt( "zmq") {
+                blastbeat.zmq = value;
+                return;
+        }
+
+        is_opt("ping-freq") {
+                blastbeat.ping_freq = atof(value);
+                return;
+        }
+
+        is_opt("uid") {
+                blastbeat.uid = value;
+                return;
+        }
+
+        is_opt("gid") {
+                blastbeat.gid = value;
+                return;
+        }
+
+        is_opt("max-hops") {
+                blastbeat.max_hops = atoi(value);
+                return;
+        }
+
+}
+
+static void bb_vhost_config_add(char *vhostname, char *key, char *value) {
+        struct bb_virtualhost *vhost = get_or_create_vhost(vhostname);
+
+        is_opt( "bind") {
+                struct bb_acceptor *acceptor = bb_get_acceptor(value, 0);
+		bb_push_to_acceptor(acceptor, vhost);
+                return;
+        }
+
+        is_opt( "node") {
+                create_dealer(vhost, value);
+                return;
+        }
+
+        return;
+}
+

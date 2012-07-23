@@ -158,8 +158,8 @@ struct bb_http_header *bb_http_req_header(struct bb_session_request *bbsr, char 
 	return NULL;
 } 
 
-struct bb_dealer *bb_get_dealer(char *name, size_t len) {
-	struct bb_virtualhost *vhost = blastbeat.vhosts;
+struct bb_dealer *bb_get_dealer(struct bb_acceptor *acceptor, char *name, size_t len) {
+	struct bb_virtualhost *vhost = acceptor->vhosts;
 	while(vhost) {
 		if (!bb_stricmp(name, len, vhost->name, vhost->len)) {
 			return vhost->dealers;
@@ -206,7 +206,7 @@ clear:
 }
 
 static void accept_callback(struct ev_loop *loop, struct ev_io *w, int revents) {
-	//printf("accept on fd %d\n", w->fd);
+	struct bb_acceptor *acceptor = (struct bb_acceptor *) w;
 	struct sockaddr_in sin;
 	socklen_t sin_len = sizeof(sin);
 	int client = accept(w->fd, (struct sockaddr *)&sin, &sin_len);
@@ -229,6 +229,7 @@ static void accept_callback(struct ev_loop *loop, struct ev_io *w, int revents) 
 	memset(bbs, 0, sizeof(struct bb_session));
 	bb_sht_add(bbs);
 	bbs->fd = client;
+	bbs->acceptor = acceptor;
 	bbs->new_request = 1;
 	ev_io_init(&bbs->reader.reader, read_callback, client, EV_READ);
 	bbs->reader.session = bbs;
@@ -342,7 +343,7 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 					bb_session_close(bbs);
 					goto next;	
 				}
-				bbs->dealer = bb_get_dealer(bbs->dealer->vhost->name, bbs->dealer->vhost->len);
+				bbs->dealer = bb_get_dealer(bbs->acceptor, bbs->dealer->vhost->name, bbs->dealer->vhost->len);
                 		if (!bbs->dealer) {
 					bb_session_close(bbs);
 					goto next;	
@@ -409,6 +410,103 @@ print:
 
 };
 
+static void bb_acceptor_bind(struct bb_acceptor *acceptor) {
+
+	int server = socket(acceptor->addr.in.sa_family, SOCK_STREAM, 0);
+        if (server < 0) {
+                bb_error_exit("socket()");
+        }
+
+        int on = 1;
+        if (setsockopt(server, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(int))) {
+                bb_error_exit("setsockopt()");
+        }
+
+        if (setsockopt(server, IPPROTO_TCP, TCP_NODELAY, &on, sizeof(int))) {
+                bb_error_exit("setsockopt()");
+        }
+
+        if (bind(server, &acceptor->addr.in, sizeof(union bb_addr))) {
+                bb_error_exit("unable to bind to HTTP address: bind()");
+        }
+
+        if (listen(server, 100) < 0) {
+                bb_error_exit("unable to put socket in listen mode: listen()");
+        }
+
+        if (bb_nonblock(server)) {
+                fprintf(stderr,"unable to put socket in non-blocking mode\n");
+                exit(1);
+        }
+
+	ev_io_init(&acceptor->acceptor, accept_callback, server, EV_READ);	
+	ev_io_start(blastbeat.loop, &acceptor->acceptor);
+
+
+	struct bb_virtualhost *vhost = acceptor->vhosts;
+        while(vhost) {
+                vhost->pinger.vhost = vhost;
+                ev_timer_init(&vhost->pinger.pinger, pinger_cb, blastbeat.ping_freq, blastbeat.ping_freq);
+                ev_timer_start(blastbeat.loop, &vhost->pinger.pinger);
+                vhost = vhost->next;
+        }
+
+}
+
+/*
+
+the first acceptor has all of the vhost
+
+scan all of the vhost in unshared acceptors
+and remove them from the first (the shared one)
+
+finally assign the shared vhost pointer to all of the shared acceptors
+
+*/
+
+static void bb_remove_unshared_vhost(struct bb_virtualhost *vhost) {
+	struct bb_virtualhost *all_vhosts = blastbeat.acceptors->vhosts;
+	struct bb_virtualhost *prev = NULL;
+	while(all_vhosts) {
+		// here we only need to compare name pointers
+		if (all_vhosts->name == vhost->name) {
+			if (!prev) {
+				blastbeat.acceptors->vhosts = all_vhosts->next;
+			}
+			else {
+				prev->next = all_vhosts->next;
+			}
+			free(all_vhosts);
+			return;
+		}
+		prev = all_vhosts;
+		all_vhosts = prev->next;
+	}
+}
+static void bb_acceptors_fix() {
+
+	struct bb_acceptor *acceptor = blastbeat.acceptors->next;
+	while(acceptor) {
+		if (!acceptor->shared) {
+			struct bb_virtualhost *vhost = acceptor->vhosts;
+			while(vhost) {
+				struct bb_virtualhost *v = vhost;
+				vhost = vhost->next;
+				bb_remove_unshared_vhost(v);
+			}
+		}
+		acceptor = acceptor->next;
+	}
+
+	acceptor = blastbeat.acceptors->next;
+	while(acceptor) {
+                if (acceptor->shared) {
+			acceptor->vhosts = blastbeat.acceptors->vhosts;
+		}
+		acceptor = acceptor->next;
+	}
+}
+
 int main(int argc, char *argv[]) {
 
 	if (argc < 2) {
@@ -425,15 +523,13 @@ int main(int argc, char *argv[]) {
 	bb_ini_config(argv[1]);
 
 	// validate config
-	if (!blastbeat.addr) {
-		fprintf(stderr, "config error: please specify a valid 'bind' directive\n");
+	if (!blastbeat.acceptors) {
+		fprintf(stderr, "config error: please specify at least one 'bind' directive\n");
 		exit(1);
 	}
 
-	if (!blastbeat.port) {
-		fprintf(stderr, "config error: please specify a valid 'bind' directive\n");
-		exit(1);
-	}
+	// fix acceptors/vhosts
+	bb_acceptors_fix();
 
 	struct rlimit rl;
 	if (getrlimit(RLIMIT_NOFILE, &rl)) {
@@ -448,52 +544,20 @@ int main(int argc, char *argv[]) {
 	}
 	memset(blastbeat.sht, 0, sizeof(struct bb_session_entry) * blastbeat.sht_size);
 
-	// report config
-	struct bb_virtualhost *vhost = blastbeat.vhosts;
-	fprintf(stdout,"*** starting BlastBeat ***\n");
-	while(vhost) {
-		fprintf(stdout, "[%s]\n", vhost->name);
-		struct bb_dealer *bbd = vhost->dealers;
-		while(bbd) {
-			fprintf(stdout, "%s\n", bbd->identity);
-			bbd = bbd->next;
-		}
-		vhost = vhost->next;
-	}
-
 	blastbeat.loop = EV_DEFAULT;
-	
-	int server = socket(AF_INET, SOCK_STREAM, 0);
-	if (server < 0) {
-		bb_error_exit("socket()");
-	}
 
-	int on = 1;
-	if (setsockopt(server, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(int))) {
-		bb_error_exit("setsockopt()");
-	}
-
-	if (setsockopt(server, IPPROTO_TCP, TCP_NODELAY, &on, sizeof(int))) {
-		bb_error_exit("setsockopt()");
-	}
-
-	struct sockaddr_in sin;
-	memset(&sin, 0, sizeof(sin));
-	sin.sin_family = AF_INET;
-	sin.sin_addr.s_addr = inet_addr(blastbeat.addr);
-	sin.sin_port = htons(blastbeat.port);
-
-	if (bind(server, (struct sockaddr *) &sin, sizeof(sin))) {
-		bb_error_exit("unable to bind to HTTP address: bind()");
-	}
-	
-	if (listen(server, 100) < 0) {
-		bb_error_exit("unable to put HTTP socket in listen mode: listen()");
-	}
-	
-	if (bb_nonblock(server)) {
-		fprintf(stderr,"unable to put HTTP socket in non-blocking mode\n");
-		exit(1);
+	// report config
+	struct bb_acceptor *acceptor = blastbeat.acceptors;
+	fprintf(stdout,"*** starting BlastBeat ***\n");
+	while(acceptor) {
+		fprintf(stdout, "\n[acceptor %s]\n", acceptor->name);
+		bb_acceptor_bind(acceptor);
+		struct bb_virtualhost *vhost = acceptor->vhosts;
+		while(vhost) {
+			fprintf(stdout, "%s\n", vhost->name);
+			vhost = vhost->next;
+		}
+		acceptor = acceptor->next;
 	}
 
 	void *context = zmq_init (1);
@@ -511,19 +575,10 @@ int main(int argc, char *argv[]) {
 
 	drop_privileges();
 
-	ev_io_init(&blastbeat.event_accept, accept_callback, server, EV_READ);	
-	ev_io_start(blastbeat.loop, &blastbeat.event_accept);
-
 	ev_io_init(&blastbeat.event_zmq, bb_zmq_receiver, blastbeat.zmq_fd, EV_READ);
 	ev_io_start(blastbeat.loop, &blastbeat.event_zmq);
 
-	vhost = blastbeat.vhosts;
-	while(vhost) {
-		vhost->pinger.vhost = vhost;
-		ev_timer_init(&vhost->pinger.pinger, pinger_cb, blastbeat.ping_freq, blastbeat.ping_freq);
-		ev_timer_start(blastbeat.loop, &vhost->pinger.pinger);
-		vhost = vhost->next;
-	}
+	fprintf(stdout,"\n*** BlastBeat is ready ***\n");
 
 	ev_loop(blastbeat.loop, 0);
 	return 0;

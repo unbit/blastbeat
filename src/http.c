@@ -114,7 +114,7 @@ static int bb_session_headers_complete(http_parser *parser) {
         }
 
         if (!bbsr->bbs->dealer) {
-                bbsr->bbs->dealer = bb_get_dealer(bbhh->value, bbhh->vallen);
+                bbsr->bbs->dealer = bb_get_dealer(bbsr->bbs->acceptor, bbhh->value, bbhh->vallen);
         	if (!bbsr->bbs->dealer) {
                 	return -1;
         	}
