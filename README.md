@@ -95,7 +95,7 @@ node = foobar1
 node = foobar2
 bind-ssl = 0.0.0.0:443
 certificate = foo.pem
-ket = foo.key
+key = foo.key
 ```
 
 
