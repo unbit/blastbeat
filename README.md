@@ -78,8 +78,26 @@ node = foobar1
 
 [blastbeat:secure.local]
 node = foobar2
-bind = 0.0.0.0:443
+bind = 0.0.0.0:8181
 ```
+
+to use HTTPS just specify bind-ssl, certificate and key options:
+
+```ini
+[blastbeat]
+bind = 0.0.0.0:8080
+zmq = tcp://0.0.0.0:5000
+
+[blastbeat:localhost:8000]
+node = foobar1
+
+[blastbeat:secure.local]
+node = foobar2
+bind-ssl = 0.0.0.0:443
+certificate = foo.pem
+ket = foo.key
+```
+
 
 ## backend nodes
 
