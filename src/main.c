@@ -78,6 +78,12 @@ void bb_session_close(struct bb_session *bbs) {
 	int i;
 	ev_io_stop(blastbeat.loop, &bbs->reader.reader);
 	ev_io_stop(blastbeat.loop, &bbs->writer.writer);
+	if (bbs->ssl) {
+		// this should be better managed, but why wasting resources ?
+		// just ignore its return value
+		SSL_shutdown(bbs->ssl);
+		SSL_free(bbs->ssl);
+	}
 	close(bbs->fd);
 	// remove the session from the hash table
 	bb_sht_remove(bbs);
@@ -169,13 +175,21 @@ struct bb_dealer *bb_get_dealer(struct bb_acceptor *acceptor, char *name, size_t
 	return NULL;
 }
 
+ssize_t bb_http_read(struct bb_session *bbs, char *buf, size_t len) {
+	return read(bbs->fd, buf, len);
+}
+
+ssize_t bb_http_write(struct bb_session *bbs, char *buf, size_t len) {
+	return write(bbs->fd, buf, len);
+}
+
 static void read_callback(struct ev_loop *loop, struct ev_io *w, int revents) {
 
 	char buf[8192];
 	ssize_t len;
 	struct bb_reader *bbr = (struct bb_reader *) w;
 	struct bb_session *bbs = bbr->session ;
-	len = read(w->fd, buf, 8192);
+	len = bbs->acceptor->read(bbs, buf, 8192);
 	if (len > 0) {
 		// if no request is initialized, allocate it
 		if (bbs->new_request) {
@@ -198,7 +212,9 @@ static void read_callback(struct ev_loop *loop, struct ev_io *w, int revents) {
 	if (len == 0) {
 		goto clear;
 	}
-	perror("read()");
+	if (errno == EINPROGRESS || errno == EAGAIN || errno == EWOULDBLOCK)
+		return;
+	perror("read_callback error");
 	
 clear:
 	//printf("done\n");
@@ -230,6 +246,12 @@ static void accept_callback(struct ev_loop *loop, struct ev_io *w, int revents) 
 	bb_sht_add(bbs);
 	bbs->fd = client;
 	bbs->acceptor = acceptor;
+	// ssl context ?
+	if (bbs->acceptor->ctx) {
+		bbs->ssl = SSL_new(acceptor->ctx);
+		SSL_set_fd(bbs->ssl, bbs->fd);
+		SSL_set_accept_state(bbs->ssl);
+	}
 	bbs->new_request = 1;
 	ev_io_init(&bbs->reader.reader, read_callback, client, EV_READ);
 	bbs->reader.session = bbs;

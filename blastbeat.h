@@ -134,6 +134,9 @@ struct bb_session {
 	struct bb_dealer *dealer;
         struct bb_session_request *requests_head;
         struct bb_session_request *requests_tail;
+
+	// ssl session
+	SSL *ssl;
 		
 	// sanity check for 'retry' command
 	uint64_t hops;
@@ -164,6 +167,8 @@ struct bb_acceptor {
 	int shared;
 	union bb_addr addr;
 	SSL_CTX *ctx;
+	ssize_t (*read)(struct bb_session *, char *, size_t);
+	ssize_t (*write)(struct bb_session *, char *, size_t);
 	struct bb_virtualhost *vhosts;
 	struct bb_acceptor *next;
 };
@@ -203,3 +208,8 @@ int bb_uwsgi(struct bb_session_request *);
 struct bb_session *bb_sht_get(char *);
 void bb_wq_callback(struct ev_loop *, struct ev_io *, int);
 int bb_wq_push(struct bb_session *, char *, size_t, int);
+
+ssize_t bb_http_read(struct bb_session *, char *, size_t);
+ssize_t bb_http_write(struct bb_session *, char *, size_t);
+ssize_t bb_ssl_read(struct bb_session *, char *, size_t);
+ssize_t bb_ssl_write(struct bb_session *, char *, size_t);

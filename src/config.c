@@ -73,6 +73,8 @@ check:
 	memset(acceptor, 0, sizeof(struct bb_acceptor));
 	acceptor->shared = shared;
 	acceptor->name = addr;
+	acceptor->read = bb_http_read;
+	acceptor->write = bb_http_write;
 	// fix address name
 	*colon = ':';
 	memcpy(&acceptor->addr, &bba, sizeof(bba));
@@ -368,6 +370,9 @@ static void bb_socket_ssl(struct bb_acceptor *acceptor) {
 	SSL_CTX_set_info_callback(acceptor->ctx, bb_ssl_info_cb);
 
 	SSL_CTX_set_session_cache_mode(acceptor->ctx, SSL_SESS_CACHE_SERVER);
+
+	acceptor->read = bb_ssl_read;
+	acceptor->write = bb_ssl_write;
 }
 
 void bb_vhost_propagate_opt(struct bb_virtualhost *vhost, size_t offset, char *value) {
