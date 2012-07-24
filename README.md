@@ -335,8 +335,6 @@ end
 
 ## Status/Issues
 
-* HTTPS support is missing
-
 * ping/pong system is still flaky
 
 * backends load balancing is incomplete
