@@ -26,6 +26,7 @@ static void bb_vhost_config_add(char *, char *, char *);
 static struct bb_acceptor *bb_get_acceptor(char *addr, int shared, void (*func)(struct bb_acceptor *)) {
 	struct bb_acceptor *last_acceptor, *acceptor;
 	union bb_addr bba;
+	socklen_t addr_len;
 	memset(&bba, 0, sizeof(bba));
 
 	char *colon = strrchr(addr, ':');
@@ -48,6 +49,7 @@ static struct bb_acceptor *bb_get_acceptor(char *addr, int shared, void (*func)(
 		}
 		bba.in6.sin6_family = AF_INET6;
 		bba.in6.sin6_port = htons(atoi(colon+1));
+		addr_len = sizeof(struct sockaddr_in6);
 		goto check;
 	}
 	if (inet_pton(AF_INET, addr, &bba.in4.sin_addr) <= 0) {
@@ -55,6 +57,7 @@ static struct bb_acceptor *bb_get_acceptor(char *addr, int shared, void (*func)(
 	}
 	bba.in4.sin_family = AF_INET;
 	bba.in4.sin_port = htons(atoi(colon+1));
+	addr_len = sizeof(struct sockaddr_in);
 
 check:
 	acceptor = blastbeat.acceptors;
@@ -78,6 +81,7 @@ check:
 	// fix address name
 	*colon = ':';
 	memcpy(&acceptor->addr, &bba, sizeof(bba));
+	acceptor->addr_len = addr_len;
 
 	if (!blastbeat.acceptors) {
 		blastbeat.acceptors = acceptor;
@@ -295,104 +299,40 @@ void bb_ini_config(char *file) {
 
 }
 
-static void bb_push_to_acceptor(struct bb_acceptor *acceptor, struct bb_virtualhost *vhost) {
-	struct bb_virtualhost *vhosts = acceptor->vhosts;
-	if (!vhosts) {
-		struct bb_virtualhost *vcopy = malloc(sizeof(struct bb_virtualhost));
-		if (!vcopy) {
-			bb_error_exit("unable to allocate memory for virtualhost: malloc()");
+struct bb_str_list *bb_uniq_push_list(struct bb_str_list **list, char *item, size_t item_len) {
+	struct bb_str_list *last_bl=NULL,*bl = *list;
+	while(bl) {
+		if (bl->len == item_len && bl->name == item) {
+			return bl;
 		}
-		memcpy(vcopy, vhost, sizeof(struct bb_virtualhost));
-		vcopy->next = NULL;
-		acceptor->vhosts = vcopy;
-		return ;
+		last_bl = bl;
+		bl = bl->next;
 	}
+
+	struct bb_str_list *bbsl = malloc(sizeof(struct bb_str_list));
+	if (!bbsl) {
+		bb_error("malloc()");
+		return NULL;
+	}
+	bbsl->len = item_len;
+	bbsl->name = item;
+	bbsl->next = NULL;
+	if (!*list) {
+		*list = bbsl;
+	}
+	else {
+		last_bl->next = bbsl;	
+	}
+
+	return bbsl;
 	
-	while(vhosts) {
-		if (!strcmp(vhost->name, vhosts->name)) return;
-		if (!vhosts->next) {
-			vhosts->next = malloc(sizeof(struct bb_virtualhost));
-			if (!vhosts->next) {
-                        	bb_error_exit("unable to allocate memory for virtualhost: malloc()");
-                	}
-			memcpy(vhosts->next, vhost, sizeof(struct bb_virtualhost));
-			vhosts->next->next = NULL;
-			return;
-		}
-next:
-		vhosts = vhosts->next;
-	}
 }
 
-static void bb_ssl_info_cb(SSL const *ssl, int where, int ret) {
-	if (where & SSL_CB_HANDSHAKE_DONE) {
-                if (ssl->s3) {
-                        ssl->s3->flags |= SSL3_FLAGS_NO_RENEGOTIATE_CIPHERS;
-                }
-        }
-}
-
-static void bb_socket_ssl(struct bb_acceptor *acceptor) {
-
-	if (!blastbeat.ssl_initialized) {
-		OPENSSL_config(NULL);
-		SSL_library_init();
-		SSL_load_error_strings();
-		OpenSSL_add_all_algorithms();
-		blastbeat.ssl_initialized = 1;
-	}
-
-	acceptor->ctx = SSL_CTX_new(SSLv23_server_method());
-	if (!acceptor->ctx) {
-		fprintf(stderr, "unable to initialize SSL context: SSL_CTX_new()");
+static void bb_push_to_acceptor(struct bb_acceptor *acceptor, struct bb_virtualhost *vhost) {
+	if (!bb_uniq_push_list(&acceptor->mapped_vhosts, vhost->name, vhost->len)) {
+		fprintf(stderr,"unable to map virtualhost to acceptor\n");
 		exit(1);
 	}
-
-	long ssloptions = SSL_OP_NO_SSLv2 | SSL_OP_ALL | SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION;
-	// disable compression (if possibile)
-#ifdef SSL_OP_NO_COMPRESSION
-        ssloptions |= SSL_OP_NO_COMPRESSION;
-#endif
-        SSL_CTX_set_options(acceptor->ctx, ssloptions);
-
-	// release/reuse buffers as soon as possibile
-#ifdef SSL_MODE_RELEASE_BUFFERS
-        SSL_CTX_set_mode(acceptor->ctx, SSL_MODE_RELEASE_BUFFERS);
-#endif
-	
-	if (SSL_CTX_set_cipher_list(acceptor->ctx, "HIGH") == 0) {
-		fprintf(stderr,"unable to set SSL ciphers: SSL_CTX_set_cipher_list()");
-        	exit(1);
-	}
-
-	SSL_CTX_set_options(acceptor->ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
-
-	SSL_CTX_set_info_callback(acceptor->ctx, bb_ssl_info_cb);
-
-	SSL_CTX_set_session_cache_mode(acceptor->ctx, SSL_SESS_CACHE_SERVER);
-
-	acceptor->read = bb_ssl_read;
-	acceptor->write = bb_ssl_write;
-}
-
-void bb_vhost_propagate_opt(struct bb_virtualhost *vhost, size_t offset, char *value) {
-	struct bb_acceptor *bba = blastbeat.acceptors;
-	while(bba) {
-		struct bb_virtualhost *bbv = bba->vhosts;
-		while(bbv) {
-			if (bbv->name == vhost->name) {
-				char *off = (char *) bbv + offset;
-        			char **ptr = (char **) off;
-        			*ptr = value;
-			}
-			bbv = bbv->next;
-		}
-		bba = bba->next;
-	}
-
-	char *off = (char *) vhost + offset;
-	char **ptr = &off;
-	*ptr = value;
 }
 
 static void bb_main_config_add(char *key, char *value) {
@@ -450,12 +390,12 @@ static void bb_vhost_config_add(char *vhostname, char *key, char *value) {
         }
 
         is_opt( "certificate") {
-		bb_vhost_propagate_opt(vhost, offsetof(struct bb_virtualhost, ssl_certificate), value);
+		vhost->ssl_certificate = value;
                 return;
         }
 
         is_opt( "key") {
-		bb_vhost_propagate_opt(vhost, offsetof(struct bb_virtualhost, ssl_key), value);
+		vhost->ssl_key = value;
                 return;
         }
 

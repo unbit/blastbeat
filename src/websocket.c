@@ -41,13 +41,13 @@ int bb_send_websocket_handshake(struct bb_session_request *bbsr) {
         bbsr->http_major = '0' + bbsr->parser.http_major;
         bbsr->http_minor = '0' + bbsr->parser.http_minor;
 
-	if (bb_wq_push(bbsr->bbs, "HTTP/", 5, 0)) return -1;
-	if (bb_wq_push(bbsr->bbs, &bbsr->http_major, 1, 0)) return -1;
-	if (bb_wq_push(bbsr->bbs, ".", 1, 0)) return -1;
-	if (bb_wq_push(bbsr->bbs, &bbsr->http_minor, 1, 0)) return -1;
-	if (bb_wq_push(bbsr->bbs, " 101 WebSocket Protocol Handshake\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ", 98, 0)) return -1;
-	if (bb_wq_push(bbsr->bbs, b64, b_len, 1)) return -1;
-	if (bb_wq_push(bbsr->bbs, "\r\n\r\n", 4, 0)) return -1;
+	if (bb_wq_push(bbsr->bbs->connection, "HTTP/", 5, 0)) return -1;
+	if (bb_wq_push(bbsr->bbs->connection, &bbsr->http_major, 1, 0)) return -1;
+	if (bb_wq_push(bbsr->bbs->connection, ".", 1, 0)) return -1;
+	if (bb_wq_push(bbsr->bbs->connection, &bbsr->http_minor, 1, 0)) return -1;
+	if (bb_wq_push(bbsr->bbs->connection, " 101 WebSocket Protocol Handshake\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ", 98, 0)) return -1;
+	if (bb_wq_push(bbsr->bbs->connection, b64, b_len, 1)) return -1;
+	if (bb_wq_push(bbsr->bbs->connection, "\r\n\r\n", 4, 0)) return -1;
 
 	return 0;
 }
@@ -60,7 +60,7 @@ int bb_manage_websocket_header(struct bb_session_request *bbsr, char byte1, char
 		return 0;
 	}
 	if (opcode == 0x09) {
-		if (bb_wq_push(bbsr->bbs, "\xA\0", 2, 0)) return -1;
+		if (bb_wq_push(bbsr->bbs->connection, "\xA\0", 2, 0)) return -1;
 		return 0;
 	}
 	return -1;
@@ -198,7 +198,7 @@ int bb_websocket_reply(struct bb_session_request *bbsr, char *msg, size_t len) {
 		memcpy(buf + 2, msg, len);
 	}
 
-	if (bb_wq_push(bbsr->bbs, buf, pkt_len, 1)) return -1;
+	if (bb_wq_push(bbsr->bbs->connection, buf, pkt_len, 1)) return -1;
 	return 0;
 }
 

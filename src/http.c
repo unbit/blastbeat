@@ -10,11 +10,11 @@ int bb_manage_chunk(struct bb_session_request *bbsr, char *buf, size_t len) {
         }
         int chunk_len = snprintf(chunk, MAX_CHUNK_STORAGE, "%X\r\n", (unsigned int) len);
 
-        if (bb_wq_push(bbs, chunk, chunk_len, 1)) goto end;
-        if (bb_wq_push_copy(bbs, buf, len, 1)) goto end;
-        if (bb_wq_push(bbs, "\r\n", 2, 0)) goto end;
+        if (bb_wq_push(bbs->connection, chunk, chunk_len, 1)) goto end;
+        if (bb_wq_push_copy(bbs->connection, buf, len, 1)) goto end;
+        if (bb_wq_push(bbs->connection, "\r\n", 2, 0)) goto end;
         if (len == 0 && bbsr->close) {
-        	if (bb_wq_push_close(bbs)) goto end;
+        	if (bb_wq_push_close(bbs->connection)) goto end;
 	}
 end:
 	bb_session_close(bbs);
@@ -114,7 +114,7 @@ static int bb_session_headers_complete(http_parser *parser) {
         }
 
         if (!bbsr->bbs->dealer) {
-                bbsr->bbs->dealer = bb_get_dealer(bbsr->bbs->acceptor, bbhh->value, bbhh->vallen);
+                bbsr->bbs->dealer = bb_get_dealer(bbsr->bbs->connection->acceptor, bbhh->value, bbhh->vallen);
         	if (!bbsr->bbs->dealer) {
                 	return -1;
         	}
@@ -172,6 +172,16 @@ http_parser_settings bb_http_response_parser_settings = {
         .on_headers_complete = response_headers_complete,
         .on_header_field = null_b_cb,
         .on_header_value = null_b_cb,
+        .on_url = null_b_cb,
+        .on_body = null_b_cb,
+};
+
+http_parser_settings bb_http_response_parser_settings2 = {
+        .on_message_begin = null_cb,
+        .on_message_complete = null_cb,
+        .on_headers_complete = null_cb,
+        .on_header_field = header_field_cb,
+        .on_header_value = header_value_cb,
         .on_url = null_b_cb,
         .on_body = null_b_cb,
 };

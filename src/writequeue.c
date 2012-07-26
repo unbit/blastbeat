@@ -29,7 +29,7 @@ static int wq_push(struct bb_writer *bbw, char *buf, size_t len, int free_it, in
 	bbwi->free_it = free_it;
 	bbwi->close_it = close_it;
 	bbwi->next = NULL;
-	
+
 	if (!bbw->head) {
 		bbw->head = bbwi;
 		bbw->tail = bbwi;
@@ -44,11 +44,16 @@ static int wq_push(struct bb_writer *bbw, char *buf, size_t len, int free_it, in
 }
 
 static void wq_decapitate(struct bb_writer *bbw) {
+
 	struct bb_writer_item *head = bbw->head;
-	bbw->head = head->next;
 	// is it the last item ?
 	if (head == bbw->tail) {
 		bbw->tail = NULL;
+		bbw->head = NULL;
+	}
+	else {
+		bbw->head = head->next;
+		bbw->head->prev = NULL;
 	}
 	if (head->free_it) {
 		free(head->buf);
@@ -58,12 +63,12 @@ static void wq_decapitate(struct bb_writer *bbw) {
 
 void bb_wq_callback(struct ev_loop *loop, struct ev_io *w, int revents) {
 	struct bb_writer *bbw = (struct bb_writer *) w;
-	struct bb_session *bbs = bbw->session;
+	struct bb_connection *bbc = bbw->connection;
 	struct bb_writer_item *consumed_bbwi,*bbwi = bbw->head;
 	while(bbwi) {
 		if (bbwi->close_it) goto end;
 		if (bbwi->len == 0) goto next;
-		ssize_t wlen = bbs->acceptor->write(bbs, bbwi->buf+bbwi->pos, bbwi->len-bbwi->pos);
+		ssize_t wlen = bbc->acceptor->write(bbc, bbwi->buf+bbwi->pos, bbwi->len-bbwi->pos);
 		if (wlen < 0) {
 			if (errno == EINPROGRESS || errno == EAGAIN || errno == EWOULDBLOCK) {
 				return ;
@@ -88,28 +93,28 @@ next:
 	ev_io_stop(blastbeat.loop, w);
 	return;
 end:
-	bb_session_close(bbs);
+	bb_connection_close(bbc);
 }
 
 
 
-int bb_wq_push(struct bb_session *bbs, char *buf, size_t len, int free_it) {
+int bb_wq_push(struct bb_connection *bbc, char *buf, size_t len, int free_it) {
 
-	if (wq_push(&bbs->writer, buf, len, free_it, 0)) return -1;
+	if (wq_push(&bbc->writer, buf, len, free_it, 0)) return -1;
 	// an item has been pushed, start the ev_io
-	ev_io_start(blastbeat.loop, &bbs->writer.writer);
+	ev_io_start(blastbeat.loop, &bbc->writer.writer);
 	return 0;
 }
 
-int bb_wq_push_close(struct bb_session *bbs) {
+int bb_wq_push_close(struct bb_connection *bbc) {
 
-	if (wq_push(&bbs->writer, NULL, 0, 0, 1)) return -1;
+	if (wq_push(&bbc->writer, NULL, 0, 0, 1)) return -1;
 	// an item has been pushed, start the ev_io
-	ev_io_start(blastbeat.loop, &bbs->writer.writer);
+	ev_io_start(blastbeat.loop, &bbc->writer.writer);
 	return 0;
 }
 
-int bb_wq_push_copy(struct bb_session *bbs, char *buf, size_t len, int free_it) {
+int bb_wq_push_copy(struct bb_connection *bbc, char *buf, size_t len, int free_it) {
 
 	char *new_buf = malloc(len);
 	if (!new_buf) {
@@ -118,8 +123,8 @@ int bb_wq_push_copy(struct bb_session *bbs, char *buf, size_t len, int free_it) 
 	}
 	memcpy(new_buf, buf, len);
 
-	if (wq_push(&bbs->writer, new_buf, len, free_it, 0)) return -1;
+	if (wq_push(&bbc->writer, new_buf, len, free_it, 0)) return -1;
 	// an item has been pushed, start the ev_io
-	ev_io_start(blastbeat.loop, &bbs->writer.writer);
+	ev_io_start(blastbeat.loop, &bbc->writer.writer);
 	return 0;
 }

@@ -3,7 +3,6 @@
 struct blastbeat_server blastbeat;
 
 extern http_parser_settings bb_http_parser_settings;
-extern http_parser_settings bb_http_response_parser_settings;
 
 struct bb_session_request *bb_new_request(struct bb_session *bbs) {
 
@@ -74,37 +73,97 @@ void bb_zmq_send_msg(char *identity, size_t identity_len, char *sid, size_t sid_
 	bb_raw_zmq_send_msg(identity, identity_len, sid, sid_len, t, t_len, body, body_len);
 }
 
-void bb_session_close(struct bb_session *bbs) {
+/*
+
+	a session can be closed on I/O error
+
+*/
+
+static void bb_session_clear(struct bb_session *bbs) {
 	int i;
-	ev_io_stop(blastbeat.loop, &bbs->reader.reader);
-	ev_io_stop(blastbeat.loop, &bbs->writer.writer);
-	if (bbs->ssl) {
-		// this should be better managed, but why wasting resources ?
-		// just ignore its return value
-		SSL_shutdown(bbs->ssl);
-		SSL_free(bbs->ssl);
-	}
-	close(bbs->fd);
+	struct bb_connection *bbc = bbs->connection;
+
 	// remove the session from the hash table
-	bb_sht_remove(bbs);
-	struct bb_session_request *bbsr = bbs->requests_head;
-	while(bbsr) {
-		for(i=0;i<=bbsr->header_pos;i++) {
-			free(bbsr->headers[i].key);
-			free(bbsr->headers[i].value);
-		}
-		if (bbsr->uwsgi_buf) {
-			free(bbsr->uwsgi_buf);
-		}
-		if (bbsr->websocket_message_queue) {
-			free(bbsr->websocket_message_queue);
-		}
-		struct bb_session_request *tmp_bbsr = bbsr;
-		bbsr = bbsr->next;
-		free(tmp_bbsr);
+        bb_sht_remove(bbs);
+                struct bb_session_request *bbsr = bbs->requests_head;
+                while(bbsr) {
+                        // in spdy mode, the first header is empty
+                        for(i=bbc->spdy;i<=bbsr->header_pos;i++) {
+                                free(bbsr->headers[i].key);
+                                free(bbsr->headers[i].value);
+                        }
+                        if (bbsr->uwsgi_buf) {
+                                free(bbsr->uwsgi_buf);
+                        }
+                        if (bbsr->websocket_message_queue) {
+                                free(bbsr->websocket_message_queue);
+                        }
+                        struct bb_session_request *tmp_bbsr = bbsr;
+                        bbsr = bbsr->next;
+                        free(tmp_bbsr);
+                }
+
+                // if linked to a dealer, send a 'end' message
+                if (bbs->dealer) {
+                        bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "end", 3, "", 0);
+                }
+
+}
+
+void bb_session_close(struct bb_session *bbs) {
+	struct bb_connection *bbc = bbs->connection;
+	bb_session_clear(bbs);	
+
+	// first one ?
+	if (bbs == bbc->sessions_head) {
+		bbc->sessions_head = bbs->conn_next;
+	}
+	// last one ?
+	if (bbs == bbc->sessions_tail) {
+		bbc->sessions_tail = bbs->conn_prev;
 	}
 
-	struct bb_writer_item *bbwi = bbs->writer.head;
+	if (bbs->conn_prev) {
+		bbs->conn_prev->next = bbs->conn_next;
+	}
+
+	if (bbs->conn_next) {
+		bbs->conn_next->prev = bbs->conn_prev;
+	}
+
+	free(bbs);
+}
+
+void bb_connection_close(struct bb_connection *bbc) {
+	int i;
+	ev_io_stop(blastbeat.loop, &bbc->reader.reader);
+	ev_io_stop(blastbeat.loop, &bbc->writer.writer);
+	if (bbc->ssl) {
+		// this should be better managed, but why wasting resources ?
+		// just ignore its return value
+		SSL_shutdown(bbc->ssl);
+		SSL_free(bbc->ssl);
+	}
+	close(bbc->fd);
+
+	if (bbc->spdy) {
+		deflateEnd(&bbc->spdy_z_in);
+		deflateEnd(&bbc->spdy_z_out);
+	}
+
+
+	// remove sessions	
+
+	struct bb_session *bbs = bbc->sessions_head;
+	while(bbs) {
+		bb_session_clear(bbs);
+		struct bb_session *old_bbs = bbs;
+		bbs = bbs->next;
+		free(old_bbs);
+	}
+
+	// remove the writer queue
+	struct bb_writer_item *bbwi = bbc->writer.head;
 	while(bbwi) {
 		struct bb_writer_item *old_bbwi = bbwi;	
 		bbwi = bbwi->next;
@@ -114,12 +173,7 @@ void bb_session_close(struct bb_session *bbs) {
 		free(old_bbwi);
 	}
 
-	// if linked to a dealer, send a 'end' message
-	if (bbs->dealer) {
-		bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "end", 3, "", 0);
-	}
-
-	free(bbs);
+	free(bbc);
 }
 
 void bb_error_exit(char *what) {
@@ -153,6 +207,11 @@ int bb_stricmp(char *str1, size_t str1len, char *str2, size_t str2len) {
 	return strncasecmp(str1, str2, str1len);
 }
 
+int bb_strcmp(char *str1, size_t str1len, char *str2, size_t str2len) {
+	if (str1len != str2len) return -1;
+	return memcmp(str1, str2, str1len);
+}
+
 struct bb_http_header *bb_http_req_header(struct bb_session_request *bbsr, char *key, size_t keylen) {
 	off_t i;
 	for(i=1;i<=bbsr->header_pos;i++) {
@@ -175,12 +234,12 @@ struct bb_dealer *bb_get_dealer(struct bb_acceptor *acceptor, char *name, size_t
 	return NULL;
 }
 
-ssize_t bb_http_read(struct bb_session *bbs, char *buf, size_t len) {
-	return read(bbs->fd, buf, len);
+ssize_t bb_http_read(struct bb_connection *bbc, char *buf, size_t len) {
+	return read(bbc->fd, buf, len);
 }
 
-ssize_t bb_http_write(struct bb_session *bbs, char *buf, size_t len) {
-	return write(bbs->fd, buf, len);
+ssize_t bb_http_write(struct bb_connection *bbc, char *buf, size_t len) {
+	return write(bbc->fd, buf, len);
 }
 
 static void read_callback(struct ev_loop *loop, struct ev_io *w, int revents) {
@@ -188,20 +247,33 @@ static void read_callback(struct ev_loop *loop, struct ev_io *w, int revents) {
 	char buf[8192];
 	ssize_t len;
 	struct bb_reader *bbr = (struct bb_reader *) w;
-	struct bb_session *bbs = bbr->session ;
-	len = bbs->acceptor->read(bbs, buf, 8192);
+	struct bb_connection *bbc = bbr->connection ;
+	len = bbc->acceptor->read(bbc, buf, 8192);
 	if (len > 0) {
-		// if no request is initialized, allocate it
-		if (bbs->new_request) {
-			//printf("allocating a new request\n");
-			if (!bb_new_request(bbs)) goto clear;
+		if (!bbc->spdy) {
+			// in HTTP connections, only one session is allowed
+			if (!bbc->sessions_head) {
+				bbc->sessions_head = bb_session_new(bbc);	
+			}
+			struct bb_session *bbs = bbc->sessions_head;
+			if (!bbs) goto clear;
+			// if no request is initialized, allocate it
+			if (bbs->new_request) {
+				//printf("allocating a new request\n");
+				if (!bb_new_request(bbs)) goto clear;
+			}
+			if (bbs->requests_tail->type == 0) {
+				int res = http_parser_execute(&bbs->requests_tail->parser, &bb_http_parser_settings, buf, len);
+				if (res != len) goto clear;
+			}
+			else if (bbs->requests_tail->type == BLASTBEAT_TYPE_WEBSOCKET) {
+				if (bb_manage_websocket(bbs->requests_tail, buf, len)) {
+					goto clear;
+				}
+			}
 		}
-		if (bbs->requests_tail->type == 0) {
-			int res = http_parser_execute(&bbs->requests_tail->parser, &bb_http_parser_settings, buf, len);
-			if (res != len) goto clear;
-		}
-		else if (bbs->requests_tail->type == BLASTBEAT_TYPE_WEBSOCKET) {
-			if (bb_manage_websocket(bbs->requests_tail, buf, len)) {
+		else {
+			if (bb_manage_spdy(bbc, buf, len)) {
 				goto clear;
 			}
 		}
@@ -217,8 +289,33 @@ static void read_callback(struct ev_loop *loop, struct ev_io *w, int revents) {
 	perror("read_callback error");
 	
 clear:
-	//printf("done\n");
-	bb_session_close(bbs);
+	bb_connection_close(bbc);
+}
+
+struct bb_session *bb_session_new(struct bb_connection *bbc) {
+	struct bb_session *bbs = malloc(sizeof(struct bb_session));
+	if (!bbs) {
+		bb_error("malloc()");
+		return NULL;
+	}
+	memset(bbs, 0, sizeof(struct bb_session));
+	// put the session in the hashtable
+	bb_sht_add(bbs);
+	// prepare for allocating a new request
+	bbs->new_request = 1;
+	// link to the connection
+	bbs->connection = bbc;
+	if (!bbc->sessions_head) {
+		bbc->sessions_head = bbs;
+		bbc->sessions_tail = bbs;
+	}
+	else {
+		bbs->conn_prev = bbc->sessions_tail;
+		bbc->sessions_tail = bbs;
+		bbs->conn_prev->next = bbs;
+	}
+
+	return bbs;
 }
 
 static void accept_callback(struct ev_loop *loop, struct ev_io *w, int revents) {
@@ -236,28 +333,28 @@ static void accept_callback(struct ev_loop *loop, struct ev_io *w, int revents) 
 		return;
 	}
 
-	struct bb_session *bbs = malloc(sizeof(struct bb_session));
-	if (!bbs) {
+	struct bb_connection *bbc = malloc(sizeof(struct bb_connection));
+	if (!bbc) {
 		perror("malloc()");
 		close(client);
 		return;
 	}
-	memset(bbs, 0, sizeof(struct bb_session));
-	bb_sht_add(bbs);
-	bbs->fd = client;
-	bbs->acceptor = acceptor;
+	memset(bbc, 0, sizeof(struct bb_connection));
+	bbc->fd = client;
+	bbc->acceptor = acceptor;
 	// ssl context ?
-	if (bbs->acceptor->ctx) {
-		bbs->ssl = SSL_new(acceptor->ctx);
-		SSL_set_fd(bbs->ssl, bbs->fd);
-		SSL_set_accept_state(bbs->ssl);
+	if (bbc->acceptor->ctx) {
+		bbc->ssl = SSL_new(acceptor->ctx);
+		SSL_set_ex_data(bbc->ssl, blastbeat.ssl_index, bbc);
+		SSL_set_fd(bbc->ssl, bbc->fd);
+		SSL_set_accept_state(bbc->ssl);
 	}
-	bbs->new_request = 1;
-	ev_io_init(&bbs->reader.reader, read_callback, client, EV_READ);
-	bbs->reader.session = bbs;
-	ev_io_init(&bbs->writer.writer, bb_wq_callback, client, EV_WRITE);
-	bbs->writer.session = bbs;
-	ev_io_start(loop, &bbs->reader.reader);
+	ev_io_init(&bbc->reader.reader, read_callback, client, EV_READ);
+	bbc->reader.connection = bbc;
+	ev_io_init(&bbc->writer.writer, bb_wq_callback, client, EV_WRITE);
+	bbc->writer.connection = bbc;
+
+	ev_io_start(loop, &bbc->reader.reader);
 }
 
 static void pinger_cb(struct ev_loop *loop, struct ev_timer *w, int revents) {
@@ -270,128 +367,6 @@ static void pinger_cb(struct ev_loop *loop, struct ev_timer *w, int revents) {
 	while(bbd) {
 		bb_raw_zmq_send_msg(bbd->identity, bbd->len, "", 0, "ping", 4, "", 0);
 		bbd = bbd->next;
-	}
-}
-
-void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
-
-	uint32_t zmq_events = 0;
-	size_t opt_len = sizeof(uint32_t);
-
-	for(;;) {
-		int ret = zmq_getsockopt(blastbeat.router, ZMQ_EVENTS, &zmq_events, &opt_len);		
-		if (ret < 0) {
-			perror("zmq_getsockopt()");
-			break;
-		}
-	
-		if (zmq_events & ZMQ_POLLIN) {
-			uint64_t more = 0;
-			size_t more_size = sizeof(more);
-			int headers = 0;
-			int i;
-			zmq_msg_t msg[4];
-			for(i=0;i<4;i++) {
-				zmq_msg_init(&msg[i]);
-				zmq_recv(blastbeat.router, &msg[i], ZMQ_NOBLOCK);
-				if (zmq_getsockopt(blastbeat.router, ZMQ_RCVMORE, &more, &more_size)) {
-					perror("zmq_getsockopt()");
-					break;
-				}
-				if (!more && i < 3) {
-					break;
-				}
-			}
-
-			// invalid message
-			if (i != 4) goto next;
-
-			// manage "pong" messages
-
-			// message with uuid ?
-			if (zmq_msg_size(&msg[1]) != BB_UUID_LEN) goto next;
-
-			// dead/invalid session ?
-			struct bb_session *bbs = bb_sht_get(zmq_msg_data(&msg[1]));
-			if (!bbs) goto next;
-
-			struct bb_session_request *bbsr = bbs->requests_tail;
-			// no request running ?
-			if (!bbsr) goto next;
-
-			if (!strncmp(zmq_msg_data(&msg[2]), "body", zmq_msg_size(&msg[2]))) {
-				if (bb_wq_push_copy(bbs,zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]), 1)) {
-					bb_session_close(bbs);
-					goto next;
-				}
-				bbsr->written_bytes += zmq_msg_size(&msg[2]);
-				// if Content-Length is specified, check it...
-				if (bbsr->content_length != ULLONG_MAX && bbsr->written_bytes >= bbsr->content_length && bbsr->close) {
-					if (bb_wq_push_close(bbs))
-						bb_session_close(bbs);
-				}
-				goto next;
-			}
-
-			if (!strncmp(zmq_msg_data(&msg[2]), "websocket", zmq_msg_size(&msg[2]))) {
-				if (bb_websocket_reply(bbsr, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3])))
-					bb_session_close(bbs);
-				goto next;
-			}
-
-			if (!strncmp(zmq_msg_data(&msg[2]), "chunk", zmq_msg_size(&msg[2]))) {
-				if (bb_manage_chunk(bbsr, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3])))
-					bb_session_close(bbs);
-				goto next;
-			}
-
-			if (!strncmp(zmq_msg_data(&msg[2]), "headers", zmq_msg_size(&msg[2]))) {
-				http_parser parser;
-				http_parser_init(&parser, HTTP_RESPONSE);
-				parser.data = bbsr;
-				int res = http_parser_execute(&parser, &bb_http_response_parser_settings, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]));
-				// invalid headers ?
-				if (res != zmq_msg_size(&msg[3])) {
-					bb_session_close(bbs);	
-					goto next;
-				}
-				if (bb_wq_push_copy(bbs, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]), 1))
-					bb_session_close(bbs);
-				goto next;
-			}
-
-			if (!strncmp(zmq_msg_data(&msg[2]), "retry", zmq_msg_size(&msg[2]))) {
-				if (bbs->hops >= blastbeat.max_hops) {
-					bb_session_close(bbs);
-					goto next;	
-				}
-				bbs->dealer = bb_get_dealer(bbs->acceptor, bbs->dealer->vhost->name, bbs->dealer->vhost->len);
-                		if (!bbs->dealer) {
-					bb_session_close(bbs);
-					goto next;	
-                		}
-				bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "uwsgi", 5, bbsr->uwsgi_buf, bbsr->uwsgi_pos);
-				bbs->hops++;
-				goto next;
-			}
-
-			if (!strncmp(zmq_msg_data(&msg[2]), "end", zmq_msg_size(&msg[2]))) {
-				if (bb_wq_push_close(bbs)) {
-					bb_session_close(bbs);	
-				}
-				goto next;
-			}
-
-next:
-			zmq_msg_close(&msg[0]);
-			zmq_msg_close(&msg[1]);
-			zmq_msg_close(&msg[2]);
-			zmq_msg_close(&msg[3]);
-		
-			continue;
-		}
-
-		break;
 	}
 }
 
@@ -448,7 +423,7 @@ static void bb_acceptor_bind(struct bb_acceptor *acceptor) {
                 bb_error_exit("setsockopt()");
         }
 
-        if (bind(server, &acceptor->addr.in, sizeof(union bb_addr))) {
+        if (bind(server, &acceptor->addr.in, acceptor->addr_len)) {
                 bb_error_exit("unable to bind to address: bind()");
         }
 
@@ -486,6 +461,17 @@ finally assign the shared vhost pointer to all of the shared acceptors
 
 */
 
+static struct bb_virtualhost *bb_get_vhost(struct bb_virtualhost *bbvh, char *name, size_t len) {
+	while(bbvh) {
+		if (bbvh->len == len && bbvh->name == name) {
+			return bbvh;
+		}
+		bbvh = bbvh->next;
+	}
+
+	return NULL;
+}
+
 static void bb_remove_unshared_vhost(struct bb_virtualhost *vhost) {
 	struct bb_virtualhost *all_vhosts = blastbeat.acceptors->vhosts;
 	struct bb_virtualhost *prev = NULL;
@@ -505,21 +491,58 @@ static void bb_remove_unshared_vhost(struct bb_virtualhost *vhost) {
 		all_vhosts = prev->next;
 	}
 }
+
+static struct bb_virtualhost *bb_vhost_map_to_acceptor(struct bb_acceptor *acceptor, struct bb_virtualhost *vhost) {
+	struct bb_virtualhost *v = bb_get_vhost(acceptor->vhosts, vhost->name, vhost->len);
+	if (v) return v;
+
+	v = malloc(sizeof(struct bb_virtualhost));
+	if (!v) {
+		bb_error("malloc()");
+		return NULL;
+	}
+	memcpy(v, vhost, sizeof(struct bb_virtualhost));
+	// fix the new object
+	v->next = NULL;
+
+	if (!acceptor->vhosts) {
+		acceptor->vhosts = v;
+		return v;
+	}
+	else {
+		struct bb_virtualhost *vhosts = acceptor->vhosts;
+		while(vhosts) {
+			if (!vhosts->next) {
+				vhosts->next = v;
+				return v;
+			}
+			vhosts = vhosts->next;
+		}
+	}
+
+	return NULL;
+}
+
 static void bb_acceptors_fix() {
 
 	struct bb_acceptor *acceptor = blastbeat.acceptors->next;
 	while(acceptor) {
 		if (!acceptor->shared) {
-			struct bb_virtualhost *vhost = acceptor->vhosts;
-			while(vhost) {
-				struct bb_virtualhost *v = vhost;
-				vhost = vhost->next;
-				bb_remove_unshared_vhost(v);
+			struct bb_str_list *mapped_vhosts = acceptor->mapped_vhosts;
+			while(mapped_vhosts) {
+				struct bb_virtualhost *vh = bb_get_vhost(blastbeat.acceptors->vhosts, mapped_vhosts->name, mapped_vhosts->len);
+				if (!bb_vhost_map_to_acceptor(acceptor, vh)) {
+					fprintf(stderr,"unable to map virtualhost to acceptor\n");
+					exit(1);
+				}
+				mapped_vhosts = mapped_vhosts->next;
+				bb_remove_unshared_vhost(vh);
 			}
 		}
 		acceptor = acceptor->next;
 	}
 
+	// now re-use the same (main) shared list for all of the shared acceptors
 	acceptor = blastbeat.acceptors->next;
 	while(acceptor) {
                 if (acceptor->shared) {
@@ -586,6 +609,8 @@ int main(int argc, char *argv[]) {
 		fprintf(stderr, "syntax: blastbeat <configfile>\n");
 		exit(1);
 	}
+
+	signal(SIGPIPE, SIG_IGN);
 
 	// set default values
 	blastbeat.ping_freq = 3.0;

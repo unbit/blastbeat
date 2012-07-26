@@ -1,6 +1,6 @@
 #include "../blastbeat.h"
 
-static int add_uwsgi_item(struct bb_session_request *bbsr, char *key, uint16_t keylen, char *val, uint16_t vallen, int hh) {
+int add_uwsgi_item(struct bb_session_request *bbsr, char *key, uint16_t keylen, char *val, uint16_t vallen, int hh) {
 
 	if (bbsr->uwsgi_pos + 2 + (hh*5) + keylen + 2 + vallen > 65536) {
 		return -1;
