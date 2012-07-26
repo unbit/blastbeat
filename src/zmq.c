@@ -133,7 +133,7 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 
                         if (!strncmp(zmq_msg_data(&msg[2]), "retry", zmq_msg_size(&msg[2]))) {
                                 if (bbs->hops >= blastbeat.max_hops) {
-                                        bb_session_close(bbs);
+                                        bb_connection_close(bbs);
                                         goto next;
                                 }
                                 if (bb_set_dealer(bbs, bbs->vhost->name, bbs->vhost->len)) {

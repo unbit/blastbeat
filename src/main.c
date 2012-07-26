@@ -135,6 +135,7 @@ void bb_session_close(struct bb_session *bbs) {
 }
 
 void bb_connection_close(struct bb_connection *bbc) {
+	fprintf(stderr,"connection close\n");
 	int i;
 	ev_io_stop(blastbeat.loop, &bbc->reader.reader);
 	ev_io_stop(blastbeat.loop, &bbc->writer.writer);
