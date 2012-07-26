@@ -346,7 +346,7 @@ end
 
 * graceful reloads
 
-* SPDY ?
+* SPDY push
 
 ## Support
 
