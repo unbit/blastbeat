@@ -14,7 +14,7 @@ the same backend node.
 
 'message type' identify the kind of the message. This is the list of currently defined message types:
 
-* headers (request/response contains HTTP headers as a raw format)
+* headers (response contains HTTP headers in raw format, Example: "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n")
 
 * uwsgi (request/response contains HTTP headers encoded in uwsgi format)
 
@@ -335,8 +335,6 @@ end
 
 ## Status/Issues
 
-* ping/pong system is still flaky
-
 * backends load balancing is incomplete
 
 
@@ -344,7 +342,7 @@ end
 
 * uWSGI Emperor support
 
-* graceful reloads
+* graceful reloads (or dynamic config ?)
 
 * SPDY push
 
