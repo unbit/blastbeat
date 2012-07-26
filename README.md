@@ -1,7 +1,7 @@
 The BlastBeat server
 =========
 
-BlastBeat is an high-performance HTTP/HTTPS proxy for new generation web apps (websockets, comet...).
+BlastBeat is an high-performance HTTP/HTTPS/SPDY proxy for new generation web apps (websockets, comet...).
 
 It seats on front of your apps and will forward requests to them via a simple ZeroMQ protocol.
 
@@ -9,7 +9,7 @@ Each request will generate a ZeroMQ multipart message for your backends.
 
 The message is composed of 3 parts: session id, message type, message body
 
-'session id' identify a specific connection, a session id (once created by BlastBeat) is always mapped to
+'session id' identify a specific connection in HTTP mode or a specific stream in SPDY mode, a session id (once created by BlastBeat) is always mapped to
 the same backend node.
 
 'message type' identify the kind of the message. This is the list of currently defined message types:
@@ -36,9 +36,9 @@ header)
 
 ## building it
 
-you need openssl,zeromq and libev development headers:
+you need openssl,zeromq,zlib and libev development headers:
 
-apt-get build-essential install libssl-dev libev-dev libzmq-dev
+apt-get build-essential install libssl-dev libev-dev libzmq-dev libz-dev
 
 should be enough
 
