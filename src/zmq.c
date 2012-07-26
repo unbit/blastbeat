@@ -70,7 +70,7 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 
                         if (!strncmp(zmq_msg_data(&msg[2]), "body", zmq_msg_size(&msg[2]))) {
                                 if (!bbs->connection->spdy) {
-                                        if (bb_wq_push_copy(bbs,zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]), 1)) {
+                                        if (bb_wq_push_copy(bbs->connection,zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]), 1)) {
                                                 bb_connection_close(bbs->connection);
                                                 goto next;
                                         }
@@ -133,7 +133,7 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 
                         if (!strncmp(zmq_msg_data(&msg[2]), "retry", zmq_msg_size(&msg[2]))) {
                                 if (bbs->hops >= blastbeat.max_hops) {
-                                        bb_connection_close(bbs);
+                                        bb_connection_close(bbs->connection);
                                         goto next;
                                 }
                                 if (bb_set_dealer(bbs, bbs->vhost->name, bbs->vhost->len)) {
@@ -146,7 +146,7 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
                         }
 
                         if (!strncmp(zmq_msg_data(&msg[2]), "end", zmq_msg_size(&msg[2]))) {
-                                if (bb_wq_push_close(bbs)) {
+                                if (bb_wq_push_close(bbs->connection)) {
                                         bb_connection_close(bbs->connection);
                                 }
                                 goto next;

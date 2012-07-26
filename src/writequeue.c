@@ -16,7 +16,7 @@ extern struct blastbeat_server blastbeat;
 
 */
 static int wq_push(struct bb_writer *bbw, char *buf, size_t len, int free_it, int close_it) {
-	
+
 	struct bb_writer_item *bbwi = malloc(sizeof(struct bb_writer_item));
 	if (!bbwi) {
 		bb_error("unable to allocate memory for a writequeue item: malloc()");
@@ -32,11 +32,9 @@ static int wq_push(struct bb_writer *bbw, char *buf, size_t len, int free_it, in
 
 	if (!bbw->head) {
 		bbw->head = bbwi;
-		bbw->tail = bbwi;
 	}
 	else {
 		bbw->tail->next = bbwi;
-		bbwi->prev = bbw->tail;
 	}
 
 	bbw->tail = bbwi;
@@ -46,14 +44,11 @@ static int wq_push(struct bb_writer *bbw, char *buf, size_t len, int free_it, in
 static void wq_decapitate(struct bb_writer *bbw) {
 
 	struct bb_writer_item *head = bbw->head;
+	bbw->head = head->next;
 	// is it the last item ?
 	if (head == bbw->tail) {
 		bbw->tail = NULL;
 		bbw->head = NULL;
-	}
-	else {
-		bbw->head = head->next;
-		bbw->head->prev = NULL;
 	}
 	if (head->free_it) {
 		free(head->buf);
@@ -64,7 +59,7 @@ static void wq_decapitate(struct bb_writer *bbw) {
 void bb_wq_callback(struct ev_loop *loop, struct ev_io *w, int revents) {
 	struct bb_writer *bbw = (struct bb_writer *) w;
 	struct bb_connection *bbc = bbw->connection;
-	struct bb_writer_item *consumed_bbwi,*bbwi = bbw->head;
+	struct bb_writer_item *bbwi = bbw->head;
 	while(bbwi) {
 		if (bbwi->close_it) goto end;
 		if (bbwi->len == 0) goto next;
@@ -85,9 +80,7 @@ void bb_wq_callback(struct ev_loop *loop, struct ev_io *w, int revents) {
 			return;
 		}
 next:
-		consumed_bbwi = bbwi;
 		bbwi = bbwi->next;
-		// remove the consumed item
 		wq_decapitate(bbw);
 	}
 	ev_io_stop(blastbeat.loop, w);
@@ -99,7 +92,6 @@ end:
 
 
 int bb_wq_push(struct bb_connection *bbc, char *buf, size_t len, int free_it) {
-
 	if (wq_push(&bbc->writer, buf, len, free_it, 0)) return -1;
 	// an item has been pushed, start the ev_io
 	ev_io_start(blastbeat.loop, &bbc->writer.writer);

@@ -122,7 +122,6 @@ struct bb_writer_item {
 	size_t len;
 	int free_it;
 	int close_it;
-	struct bb_writer_item *prev;
 	struct bb_writer_item *next;
 };
 
@@ -259,8 +258,11 @@ struct bb_http_header *bb_http_req_header(struct bb_session_request *, char *, s
 int bb_set_dealer(struct bb_session *, char *, size_t);
 int bb_uwsgi(struct bb_session_request *);
 struct bb_session *bb_sht_get(char *);
+
 void bb_wq_callback(struct ev_loop *, struct ev_io *, int);
 int bb_wq_push(struct bb_connection *, char *, size_t, int);
+int bb_wq_push_copy(struct bb_connection *, char *, size_t, int);
+int bb_wq_push_close(struct bb_connection *);
 
 ssize_t bb_http_read(struct bb_connection *, char *, size_t);
 ssize_t bb_http_write(struct bb_connection *, char *, size_t);
