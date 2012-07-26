@@ -52,7 +52,7 @@ struct bb_dealer {
         char *identity;
 	size_t len;
         char *identify_prefix;
-        time_t last_pong;
+        time_t last_seen;
 	struct bb_virtualhost *vhost;
         struct bb_dealer *next;
 };

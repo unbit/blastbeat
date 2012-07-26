@@ -51,6 +51,8 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
                         // no request running ?
                         if (!bbsr) goto next;
 
+			bbs->dealer->last_seen = time(NULL);
+
                         if (!strncmp(zmq_msg_data(&msg[2]), "body", zmq_msg_size(&msg[2]))) {
                                 if (!bbs->connection->spdy) {
                                         if (bb_wq_push_copy(bbs,zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]), 1)) {

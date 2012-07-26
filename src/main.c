@@ -364,8 +364,11 @@ static void pinger_cb(struct ev_loop *loop, struct ev_timer *w, int revents) {
 	struct bb_dealer *bbd = pinger->vhost->dealers;
 	// get events before starting a potentially long write session
 	ev_feed_event(blastbeat.loop, &blastbeat.event_zmq, EV_READ);
+	time_t now = time(NULL);
 	while(bbd) {
-		bb_raw_zmq_send_msg(bbd->identity, bbd->len, "", 0, "ping", 4, "", 0);
+		if (now - bbd->last_seen > blastbeat.ping_freq) {
+			bb_raw_zmq_send_msg(bbd->identity, bbd->len, "", 0, "ping", 4, "", 0);
+		}
 		bbd = bbd->next;
 	}
 }
