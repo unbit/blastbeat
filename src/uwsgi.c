@@ -89,13 +89,13 @@ int bb_uwsgi(struct bb_session_request *bbsr) {
 			return -1;
 	}
 
-	char *port = strchr(bbsr->bbs->dealer->vhost->name, ':');
+	char *port = strchr(bbsr->bbs->vhost->name, ':');
 	if (port) {
-		if (add_uwsgi_item(bbsr, "SERVER_NAME", 11, bbsr->bbs->dealer->vhost->name, port-bbsr->bbs->dealer->vhost->name, 0)) return -1;
-		if (add_uwsgi_item(bbsr, "SERVER_PORT", 11, port+1, (bbsr->bbs->dealer->vhost->name + bbsr->bbs->dealer->vhost->len) - (port+1), 0)) return -1;
+		if (add_uwsgi_item(bbsr, "SERVER_NAME", 11, bbsr->bbs->vhost->name, port-bbsr->bbs->vhost->name, 0)) return -1;
+		if (add_uwsgi_item(bbsr, "SERVER_PORT", 11, port+1, (bbsr->bbs->vhost->name + bbsr->bbs->vhost->len) - (port+1), 0)) return -1;
 	}
 	else {
-		if (add_uwsgi_item(bbsr, "SERVER_NAME", 11, bbsr->bbs->dealer->vhost->name, bbsr->bbs->dealer->vhost->len, 0)) return -1;
+		if (add_uwsgi_item(bbsr, "SERVER_NAME", 11, bbsr->bbs->vhost->name, bbsr->bbs->vhost->len, 0)) return -1;
 		if (add_uwsgi_item(bbsr, "SERVER_PORT", 11, "80", 2, 0)) return -1;
 	}
 

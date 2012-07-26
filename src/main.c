@@ -223,15 +223,20 @@ struct bb_http_header *bb_http_req_header(struct bb_session_request *bbsr, char 
 	return NULL;
 } 
 
-struct bb_dealer *bb_get_dealer(struct bb_acceptor *acceptor, char *name, size_t len) {
+int bb_set_dealer(struct bb_session *bbs, char *name, size_t len) {
+	struct bb_acceptor *acceptor = bbs->connection->acceptor;
 	struct bb_virtualhost *vhost = acceptor->vhosts;
 	while(vhost) {
 		if (!bb_stricmp(name, len, vhost->name, vhost->len)) {
-			return vhost->dealers;
+			if (vhost->dealers) {
+				bbs->dealer = vhost->dealers->dealer;
+				bbs->vhost = vhost;
+				return 0;
+			}
 		}
 		vhost = vhost->next;
 	}
-	return NULL;
+	return -1;
 }
 
 ssize_t bb_http_read(struct bb_connection *bbc, char *buf, size_t len) {
@@ -359,9 +364,7 @@ static void accept_callback(struct ev_loop *loop, struct ev_io *w, int revents) 
 
 static void pinger_cb(struct ev_loop *loop, struct ev_timer *w, int revents) {
 
-	struct bb_pinger *pinger = (struct bb_pinger *) w;
-
-	struct bb_dealer *bbd = pinger->vhost->dealers;
+	struct bb_dealer *bbd = blastbeat.dealers;
 	// get events before starting a potentially long write session
 	ev_feed_event(blastbeat.loop, &blastbeat.event_zmq, EV_READ);
 	time_t now = time(NULL);
@@ -442,14 +445,8 @@ static void bb_acceptor_bind(struct bb_acceptor *acceptor) {
 	ev_io_init(&acceptor->acceptor, accept_callback, server, EV_READ);	
 	ev_io_start(blastbeat.loop, &acceptor->acceptor);
 
-
-	struct bb_virtualhost *vhost = acceptor->vhosts;
-        while(vhost) {
-                vhost->pinger.vhost = vhost;
-                ev_timer_init(&vhost->pinger.pinger, pinger_cb, blastbeat.ping_freq, blastbeat.ping_freq);
-                ev_timer_start(blastbeat.loop, &vhost->pinger.pinger);
-                vhost = vhost->next;
-        }
+	ev_timer_init(&blastbeat.pinger, pinger_cb, blastbeat.ping_freq, blastbeat.ping_freq);
+        ev_timer_start(blastbeat.loop, &blastbeat.pinger);
 
 }
 

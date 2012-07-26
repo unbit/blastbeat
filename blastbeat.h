@@ -53,13 +53,12 @@ struct bb_dealer {
 	size_t len;
         char *identify_prefix;
         time_t last_seen;
-	struct bb_virtualhost *vhost;
         struct bb_dealer *next;
 };
 
-struct bb_pinger {
-	ev_timer pinger;
-	struct bb_virtualhost *vhost;
+struct bb_vhost_dealer {
+	struct bb_dealer *dealer;
+	struct bb_vhost_dealer *next;
 };
 
 struct bb_reader {
@@ -77,8 +76,7 @@ struct bb_virtualhost {
 	char *ssl_certificate;
 	char *ssl_key;
 
-	struct bb_pinger pinger;
-	struct bb_dealer *dealers;
+	struct bb_vhost_dealer *dealers;
 	struct bb_virtualhost *next;
 };
 
@@ -176,6 +174,8 @@ struct bb_session {
 
 	// each session can run on a different dealer
 	struct bb_dealer *dealer;
+	// contains the virtualhost mapped to the session
+	struct bb_virtualhost *vhost;
 
         int new_request;
         struct bb_session_request *requests_head;
@@ -246,14 +246,17 @@ struct blastbeat_server {
 	uint32_t sht_size;
 	struct bb_session_entry *sht;
 
+	struct bb_dealer *dealers;
+
 	ev_io event_zmq;
+	ev_timer pinger;
 
 };
 
 
 void bb_error(char *);
 struct bb_http_header *bb_http_req_header(struct bb_session_request *, char *, size_t);
-struct bb_dealer *bb_get_dealer(struct bb_acceptor *, char *, size_t);
+int bb_set_dealer(struct bb_session *, char *, size_t);
 int bb_uwsgi(struct bb_session_request *);
 struct bb_session *bb_sht_get(char *);
 void bb_wq_callback(struct ev_loop *, struct ev_io *, int);

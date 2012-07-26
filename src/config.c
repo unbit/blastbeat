@@ -130,16 +130,16 @@ static struct bb_virtualhost *get_or_create_vhost(char *vhostname) {
 	return vhost;
 }
 
-static struct bb_dealer *create_dealer(struct bb_virtualhost *vhost, char *node) {
-	struct bb_dealer *last_bbd = NULL,*bbd = vhost->dealers;
-	while(bbd) {
-		if (!strcmp(bbd->identity, node)) {
-			return bbd;
-		}
-		last_bbd = bbd;
-		bbd = bbd->next;	
-	}
-	
+static struct bb_dealer *get_or_create_dealer(char *node) {
+	struct bb_dealer *last_bbd = NULL,*bbd = blastbeat.dealers;
+        while(bbd) {
+                if (!strcmp(bbd->identity, node)) {
+                        return bbd;
+                }
+                last_bbd = bbd;
+                bbd = bbd->next;
+        }
+
 	bbd = malloc(sizeof(struct bb_dealer));
 	if (!bbd) {
 		bb_error_exit("malloc()");
@@ -147,14 +147,43 @@ static struct bb_dealer *create_dealer(struct bb_virtualhost *vhost, char *node)
 	memset(bbd, 0, sizeof(struct bb_dealer));
 	bbd->identity = node;
 	bbd->len = strlen(node);
-	bbd->vhost = vhost;
+
 	if (last_bbd) {
 		last_bbd->next = bbd;
 	}
 	else {
-		vhost->dealers = bbd;
-	}
+		blastbeat.dealers = bbd;
+	}	
+
 	return bbd;
+}
+
+static struct bb_vhost_dealer *create_vhost_dealer(struct bb_virtualhost *vhost, char *node) {
+	struct bb_dealer *bbd = get_or_create_dealer(node);
+	struct bb_vhost_dealer *last_bbvhd = NULL,*bbvhd = vhost->dealers;
+	while(bbvhd) {
+		if (!strcmp(bbvhd->dealer->identity, node)) {
+			return bbvhd;
+		}
+		last_bbvhd = bbvhd;
+		bbvhd = bbvhd->next;
+	}	
+
+	bbvhd = malloc(sizeof(struct bb_vhost_dealer));
+	if (!bbvhd) {
+		bb_error_exit("malloc()");
+	}
+	bbvhd->dealer = bbd;
+	bbvhd->next = NULL;
+
+	if (last_bbvhd) {
+		last_bbvhd->next = bbvhd;
+	}
+	else {
+		vhost->dealers = bbvhd;
+	}
+
+	return bbvhd;
 }
 
 static void ini_rstrip(char *line) {
@@ -400,7 +429,7 @@ static void bb_vhost_config_add(char *vhostname, char *key, char *value) {
         }
 
         is_opt( "node") {
-                create_dealer(vhost, value);
+                create_vhost_dealer(vhost, value);
                 return;
         }
 

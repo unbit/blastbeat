@@ -5,6 +5,17 @@ extern struct blastbeat_server blastbeat;
 extern http_parser_settings bb_http_response_parser_settings;
 extern http_parser_settings bb_http_response_parser_settings2;
 
+static void manage_ping(char *identity, size_t len) {
+	struct bb_dealer *bbd = blastbeat.dealers;
+	time_t now = time(NULL);
+	while(bbd) {
+		if (!bb_strcmp(identity, len, bbd->identity, bbd->len)) {
+			bbd->last_seen = now;
+		}
+		bbd = bbd->next;
+	}
+}
+
 void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 
         uint32_t zmq_events = 0;
@@ -39,6 +50,10 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
                         if (i != 4) goto next;
 
                         // manage "pong" messages
+			if (!strncmp(zmq_msg_data(&msg[2]), "pong", zmq_msg_size(&msg[2]))) {
+				manage_ping(zmq_msg_data(&msg[0]), zmq_msg_size(&msg[0]));
+				goto next;
+			}
 
                         // message with uuid ?
                         if (zmq_msg_size(&msg[1]) != BB_UUID_LEN) goto next;
@@ -121,8 +136,7 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
                                         bb_session_close(bbs);
                                         goto next;
                                 }
-                                bbs->dealer = bb_get_dealer(bbs->connection->acceptor, bbs->dealer->vhost->name, bbs->dealer->vhost->len);
-                                if (!bbs->dealer) {
+                                if (bb_set_dealer(bbs, bbs->vhost->name, bbs->vhost->len)) {
                                         bb_connection_close(bbs->connection);
                                         goto next;
                                 }

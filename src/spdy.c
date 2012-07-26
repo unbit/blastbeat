@@ -98,7 +98,8 @@ static int bb_spdy_uwsgi(struct bb_session_request *bbsr, char *ptr, uint16_t hl
 			if (add_uwsgi_item(bbsr, "SERVER_PROTOCOL", 15, val, vlen, 0)) return -1;
 		}
 		else if (!bb_strcmp(key, klen, "host", 4)) {
-			bbsr->bbs->dealer = bb_get_dealer(bbsr->bbs->connection->acceptor, val, vlen);
+			if (bb_set_dealer(bbsr->bbs, val, vlen))
+				return -1;
 			if (add_uwsgi_item(bbsr, "HTTP_HOST", 9, val, vlen, 0)) return -1;
 		}
 		else if (!bb_strcmp(key, klen, "content-type", 12)) {
@@ -127,15 +128,15 @@ static int bb_spdy_uwsgi(struct bb_session_request *bbsr, char *ptr, uint16_t hl
 
 	char *port = NULL;
 	if (bbsr->bbs->dealer) {
-		 port = strchr(bbsr->bbs->dealer->vhost->name, ':');
+		 port = strchr(bbsr->bbs->vhost->name, ':');
 	}
 
         if (bbsr->bbs->dealer && port) {
-               	if (add_uwsgi_item(bbsr, "SERVER_NAME", 11, bbsr->bbs->dealer->vhost->name, port-(bbsr->bbs->dealer->vhost->name), 0)) return -1;
-               	if (add_uwsgi_item(bbsr, "SERVER_PORT", 11, port+1, (bbsr->bbs->dealer->vhost->name + bbsr->bbs->dealer->vhost->len) - (port+1), 0)) return -1;
+               	if (add_uwsgi_item(bbsr, "SERVER_NAME", 11, bbsr->bbs->vhost->name, port-(bbsr->bbs->vhost->name), 0)) return -1;
+               	if (add_uwsgi_item(bbsr, "SERVER_PORT", 11, port+1, (bbsr->bbs->vhost->name + bbsr->bbs->vhost->len) - (port+1), 0)) return -1;
         }
         else if (bbsr->bbs->dealer) {
-               	if (add_uwsgi_item(bbsr, "SERVER_NAME", 11, bbsr->bbs->dealer->vhost->name, bbsr->bbs->dealer->vhost->len, 0)) return -1;
+               	if (add_uwsgi_item(bbsr, "SERVER_NAME", 11, bbsr->bbs->vhost->name, bbsr->bbs->vhost->len, 0)) return -1;
                	if (add_uwsgi_item(bbsr, "SERVER_PORT", 11, "80", 2, 0)) return -1;
         }
 	else {
