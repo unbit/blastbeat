@@ -191,10 +191,10 @@ struct bb_http_header *bb_http_req_header(struct bb_session_request *bbsr, char 
 
 int bb_set_dealer(struct bb_session *bbs, char *name, size_t len) {
 	struct bb_acceptor *acceptor = bbs->connection->acceptor;
-	struct bb_virtualhost *vhost = acceptor->vhosts;
+	struct bb_acceptor_vhost *vhost = acceptor->vhosts;
 	while(vhost) {
-		if (!bb_stricmp(name, len, vhost->name, vhost->len)) {
-			struct bb_vhost_dealer *bbvd = vhost->dealers;
+		if (!bb_stricmp(name, len, vhost->vhost->name, vhost->vhost->len)) {
+			struct bb_vhost_dealer *bbvd = vhost->vhost->dealers;
 			struct bb_dealer *best_dealer = NULL;
 			while(bbvd) {
 				if (bbvd->dealer->status == BLASTBEAT_DEALER_OFF) goto next;
@@ -211,7 +211,7 @@ next:
 			if (best_dealer) {
 				best_dealer->load++;
 				bbs->dealer = best_dealer;
-				bbs->vhost = vhost;
+				bbs->vhost = vhost->vhost;
 				return 0;
 			}
 			return -1;
@@ -438,103 +438,59 @@ static void bb_acceptor_bind(struct bb_acceptor *acceptor) {
 
 /*
 
-the first acceptor has all of the vhost
-
-scan all of the vhost in unshared acceptors
-and remove them from the first (the shared one)
-
-finally assign the shared vhost pointer to all of the shared acceptors
+add vhosts to acceptors
 
 */
 
-static struct bb_virtualhost *bb_get_vhost(struct bb_virtualhost *bbvh, char *name, size_t len) {
-	while(bbvh) {
-		if (bbvh->len == len && bbvh->name == name) {
-			return bbvh;
-		}
-		bbvh = bbvh->next;
-	}
-
-	return NULL;
-}
-
-static void bb_remove_unshared_vhost(struct bb_virtualhost *vhost) {
-	struct bb_virtualhost *all_vhosts = blastbeat.acceptors->vhosts;
-	struct bb_virtualhost *prev = NULL;
-	while(all_vhosts) {
-		// here we only need to compare name pointers
-		if (all_vhosts->name == vhost->name) {
-			if (!prev) {
-				blastbeat.acceptors->vhosts = all_vhosts->next;
-			}
-			else {
-				prev->next = all_vhosts->next;
-			}
-			free(all_vhosts);
+static void bb_acceptor_push_vhost(struct bb_acceptor *acceptor, struct bb_virtualhost *vhost) {
+	struct bb_acceptor_vhost *last_vhost=NULL,*vhosts = acceptor->vhosts;
+	while(vhosts) {
+		if (vhosts->vhost == vhost)
 			return;
-		}
-		prev = all_vhosts;
-		all_vhosts = prev->next;
+		last_vhost = vhosts;
+		vhosts = vhosts->next;
 	}
-}
 
-static struct bb_virtualhost *bb_vhost_map_to_acceptor(struct bb_acceptor *acceptor, struct bb_virtualhost *vhost) {
-	struct bb_virtualhost *v = bb_get_vhost(acceptor->vhosts, vhost->name, vhost->len);
-	if (v) return v;
-
-	v = malloc(sizeof(struct bb_virtualhost));
-	if (!v) {
-		bb_error("malloc()");
-		return NULL;
+	vhosts = malloc(sizeof(struct bb_acceptor_vhost));
+	if (!vhosts) {
+		bb_error_exit("malloc()");
 	}
-	memcpy(v, vhost, sizeof(struct bb_virtualhost));
-	// fix the new object
-	v->next = NULL;
+	vhosts->vhost = vhost;
+	vhosts->next = NULL;
 
-	if (!acceptor->vhosts) {
-		acceptor->vhosts = v;
-		return v;
+	if (last_vhost) {
+		last_vhost->next = vhosts;
 	}
 	else {
-		struct bb_virtualhost *vhosts = acceptor->vhosts;
-		while(vhosts) {
-			if (!vhosts->next) {
-				vhosts->next = v;
-				return v;
-			}
-			vhosts = vhosts->next;
-		}
+		acceptor->vhosts = vhosts;
 	}
-
-	return NULL;
 }
 
 static void bb_acceptors_fix() {
 
-	struct bb_acceptor *acceptor = blastbeat.acceptors->next;
-	while(acceptor) {
-		if (!acceptor->shared) {
-			struct bb_str_list *mapped_vhosts = acceptor->mapped_vhosts;
-			while(mapped_vhosts) {
-				struct bb_virtualhost *vh = bb_get_vhost(blastbeat.acceptors->vhosts, mapped_vhosts->name, mapped_vhosts->len);
-				if (!bb_vhost_map_to_acceptor(acceptor, vh)) {
-					fprintf(stderr,"unable to map virtualhost to acceptor\n");
-					exit(1);
-				}
-				mapped_vhosts = mapped_vhosts->next;
-				bb_remove_unshared_vhost(vh);
-			}
+	struct bb_virtualhost *vhosts = blastbeat.vhosts;
+	while(vhosts) {
+		struct bb_vhost_acceptor *acceptor = vhosts->acceptors;
+		while(acceptor) {
+			bb_acceptor_push_vhost(acceptor->acceptor, vhosts);
+			acceptor = acceptor->next;
 		}
-		acceptor = acceptor->next;
+		vhosts = vhosts->next;
 	}
 
-	// now re-use the same (main) shared list for all of the shared acceptors
-	acceptor = blastbeat.acceptors->next;
-	while(acceptor) {
-                if (acceptor->shared) {
-			acceptor->vhosts = blastbeat.acceptors->vhosts;
+	// now push all of the shared acceptors to virtualhosts with empty acceptors list
+	vhosts = blastbeat.vhosts;
+	while(vhosts) {
+		if (!vhosts->acceptors) {
+			struct bb_acceptor *acceptor = blastbeat.acceptors;
+			while(acceptor) {
+				if (acceptor->shared) {
+					bb_acceptor_push_vhost(acceptor, vhosts);
+				}
+				acceptor = acceptor->next;
+			}
 		}
-		acceptor = acceptor->next;
+		vhosts = vhosts->next;
 	}
 }
 
@@ -636,10 +592,10 @@ int main(int argc, char *argv[]) {
 	while(acceptor) {
 		fprintf(stdout, "\n[acceptor %s]\n", acceptor->name);
 		bb_acceptor_bind(acceptor);
-		struct bb_virtualhost *vhost = acceptor->vhosts;
+		struct bb_acceptor_vhost *vhost = acceptor->vhosts;
 		while(vhost) {
-			fprintf(stdout, "%s\n", vhost->name);
-			bb_assign_ssl(acceptor, vhost);
+			fprintf(stdout, "%s\n", vhost->vhost->name);
+			bb_assign_ssl(acceptor, vhost->vhost);
 			vhost = vhost->next;
 		}
 		acceptor = acceptor->next;

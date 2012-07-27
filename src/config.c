@@ -98,11 +98,7 @@ check:
 }
 
 static struct bb_virtualhost *get_or_create_vhost(char *vhostname) {
-	if (!blastbeat.acceptors) {
-		fprintf(stderr, "you need to configure at leats one bind directive\n");
-		exit(1);
-	}
-	struct bb_virtualhost *last_vhost = NULL,*vhost = blastbeat.acceptors->vhosts;
+	struct bb_virtualhost *last_vhost = NULL,*vhost = blastbeat.vhosts;
 	// do not be afraid of using strcmp() as the config parser is the only one
 	// allowed to create vhost
 	while(vhost) {
@@ -125,7 +121,7 @@ static struct bb_virtualhost *get_or_create_vhost(char *vhostname) {
 		last_vhost->next = vhost;
 	}
 	else {
-		blastbeat.acceptors->vhosts = vhost;
+		blastbeat.vhosts = vhost;
 	}
 	return vhost;
 }
@@ -328,39 +324,30 @@ void bb_ini_config(char *file) {
 
 }
 
-struct bb_str_list *bb_uniq_push_list(struct bb_str_list **list, char *item, size_t item_len) {
-	struct bb_str_list *last_bl=NULL,*bl = *list;
-	while(bl) {
-		if (bl->len == item_len && bl->name == item) {
-			return bl;
+static void bb_vhost_push_acceptor(struct bb_virtualhost *vhost, struct bb_acceptor *acceptor) {
+	
+	struct bb_vhost_acceptor *last_bbva = NULL, *bbva = vhost->acceptors;
+	while(bbva) {
+		// acceptor already mapped
+		if (bbva->acceptor == acceptor) {
+			return;
 		}
-		last_bl = bl;
-		bl = bl->next;
+		last_bbva = bbva;
+		bbva = bbva->next;
 	}
 
-	struct bb_str_list *bbsl = malloc(sizeof(struct bb_str_list));
-	if (!bbsl) {
-		bb_error("malloc()");
-		return NULL;
-	}
-	bbsl->len = item_len;
-	bbsl->name = item;
-	bbsl->next = NULL;
-	if (!*list) {
-		*list = bbsl;
+	bbva = malloc(sizeof(struct bb_vhost_acceptor));
+	if (!bbva) {
+		bb_error_exit("malloc()");
+	}	
+	bbva->acceptor = acceptor;
+	bbva->next = NULL;
+
+	if (last_bbva) {
+		last_bbva->next = bbva;
 	}
 	else {
-		last_bl->next = bbsl;	
-	}
-
-	return bbsl;
-	
-}
-
-static void bb_push_to_acceptor(struct bb_acceptor *acceptor, struct bb_virtualhost *vhost) {
-	if (!bb_uniq_push_list(&acceptor->mapped_vhosts, vhost->name, vhost->len)) {
-		fprintf(stderr,"unable to map virtualhost to acceptor\n");
-		exit(1);
+		vhost->acceptors = bbva;
 	}
 }
 
@@ -408,13 +395,13 @@ static void bb_vhost_config_add(char *vhostname, char *key, char *value) {
 
         is_opt( "bind") {
                 struct bb_acceptor *acceptor = bb_get_acceptor(value, 0, NULL);
-		bb_push_to_acceptor(acceptor, vhost);
+		bb_vhost_push_acceptor(vhost, acceptor);
                 return;
         }
 
         is_opt( "bind-ssl") {
                 struct bb_acceptor *acceptor = bb_get_acceptor(value, 0, bb_socket_ssl);
-		bb_push_to_acceptor(acceptor, vhost);
+		bb_vhost_push_acceptor(vhost, acceptor);
                 return;
         }
 

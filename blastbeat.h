@@ -45,12 +45,6 @@
 struct bb_virtualhost;
 struct bb_session;
 
-struct bb_str_list {
-	char *name;
-	size_t len;
-	struct bb_str_list *next;
-};
-
 struct bb_dealer {
         char *identity;
 	size_t len;
@@ -75,12 +69,13 @@ struct bb_acceptor;
 struct bb_virtualhost {
 	char *name;
 	size_t len;
-	struct bb_acceptor *acceptors;
+
+	struct bb_vhost_acceptor *acceptors;
+	struct bb_vhost_dealer *dealers;
 
 	char *ssl_certificate;
 	char *ssl_key;
 
-	struct bb_vhost_dealer *dealers;
 	struct bb_virtualhost *next;
 };
 
@@ -218,15 +213,25 @@ struct bb_acceptor {
 	SSL_CTX *ctx;
 	ssize_t (*read)(struct bb_connection *, char *, size_t);
 	ssize_t (*write)(struct bb_connection *, char *, size_t);
-	struct bb_virtualhost *vhosts;
 	// this is a string list of acceptor->vhost mappings
 	// required for building (later) the correct structure
-	struct bb_str_list *mapped_vhosts;
+	struct bb_acceptor_vhost *vhosts;
 	struct bb_acceptor *next;
+};
+
+struct bb_acceptor_vhost {
+	struct bb_virtualhost *vhost;
+	struct bb_acceptor_vhost *next;
+};
+
+struct bb_vhost_acceptor {
+	struct bb_acceptor *acceptor;
+	struct bb_vhost_acceptor *next;
 };
 
 struct blastbeat_server {
 	struct bb_acceptor *acceptors;
+	struct bb_virtualhost *vhosts;
 	char *zmq;
 
 	float ping_freq;
