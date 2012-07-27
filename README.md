@@ -33,6 +33,17 @@ header. SPDY sessions do not support chunked messages)
 
 * retry (response, ask BlastBeat to make the same request to another node REMEMBER: there is a maximum of 'retry' messages per-session)
 
+Commands in development/study/analysis
+
+* move (move the session to another node)
+
+* push (SPDY push service)
+
+* join (join a BlastBeat group, it is required for sending messages to peers in the same group)
+
+* goaway (SPDY-friendly connection interruption)
+
+feel free to propose your ideas...
 
 ## building it
 
@@ -171,6 +182,21 @@ multiple nodes automagically
 
 WebSocket requests are automagically managed by BlastBeat. You do not need to manage the handshake, as soon as BlastBeat
 has completed the connection, you will start receiving messages of type 'websocket'
+
+An echo service would be something like that:
+
+```python
+while True:
+        # receive a blastbeat message
+        sid, msg_type, msg_body = socket.recv_multipart()
+        if msg_type == 'websocket':
+            zmq.send(sid, zmq.SNDMORE)
+            zmq.send('websocket', zmq.SNDMORE)
+            zmq.send("received: %s" % msg_body)
+            continue
+```
+
+Websockets over https are supported, just use the wss:// form in your javascript code
 
 ## SPDY (v2)
 
