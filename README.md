@@ -335,7 +335,7 @@ end
 
 ## Status/Issues
 
-* backends load balancing is incomplete
+* No logging system, all messages go to stdout/stderr
 
 
 ## TODO
@@ -351,3 +351,7 @@ end
 you can ask for help in the official mailing-list
 
 http://lists.unbit.it/cgi-bin/mailman/listinfo/blastbeat
+
+## Twitter
+
+@unbit
