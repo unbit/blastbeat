@@ -420,6 +420,8 @@ end
 
 * SPDY push
 
+* Some form of timeout management
+
 ## Support
 
 you can ask for help in the official mailing-list
