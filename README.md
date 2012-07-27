@@ -21,7 +21,7 @@ the same backend node.
 * body (request/response contains raw body)
 
 * chunk (response will encode the message in a HTTP chunk, REMEMBER: set the correct Transfer-Encoding in your
-header) 
+header. SPDY sessions do not support chunked messages) 
 
 * end (request/response close the connection of HTTP requests and the stream of a SPDY one, REMEMBER: BlastBeat supports HTTP persistent connections !!!)
 
@@ -79,7 +79,7 @@ You can bind specific virtualhost to specific address (as required by https) inc
 bind = 0.0.0.0:8080
 zmq = tcp://0.0.0.0:5000
 
-[blastbeat:localhost:8000]
+[blastbeat:localhost:8080]
 node = foobar1
 
 [blastbeat:secure.local]
