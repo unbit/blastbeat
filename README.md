@@ -104,6 +104,15 @@ certificate = foo.pem
 key = foo.key
 ```
 
+To generate keys/certificates for testing (self-signed) just do that:
+
+```
+openssl genrsa -out foobar.key 2048
+openssl req -new -key foobar.key -out foobar.csr
+openssl x509 -req -days 365 -in foobar.csr -signkey foobar.key -out foobar.crt
+```
+
+that will result in foobar.key and foobar.crt
 
 ## backend nodes
 
