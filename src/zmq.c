@@ -5,6 +5,47 @@ extern struct blastbeat_server blastbeat;
 extern http_parser_settings bb_http_response_parser_settings;
 extern http_parser_settings bb_http_response_parser_settings2;
 
+void bb_raw_zmq_send_msg(char *identity, size_t identity_len, char *sid, size_t sid_len, char *t, size_t t_len, char *body, size_t body_len) {
+
+        zmq_msg_t z_i,z_sid,z_t, z_body;
+
+        zmq_msg_init_size(&z_i, identity_len);
+        zmq_msg_init_size(&z_sid, sid_len);
+        zmq_msg_init_size(&z_t, t_len);
+        zmq_msg_init_size(&z_body, body_len);
+
+        memcpy(zmq_msg_data(&z_i), identity, identity_len);
+        memcpy(zmq_msg_data(&z_sid), sid, sid_len);
+        memcpy(zmq_msg_data(&z_t), t, t_len);
+        memcpy(zmq_msg_data(&z_body), body, body_len);
+
+
+        zmq_send(blastbeat.router, &z_i, ZMQ_SNDMORE);
+        zmq_send(blastbeat.router, &z_sid, ZMQ_SNDMORE);
+        zmq_send(blastbeat.router, &z_t, ZMQ_SNDMORE);
+        for(;;) {
+                int ret = zmq_send(blastbeat.router, &z_body, ZMQ_NOBLOCK);
+                if (!ret) break;
+                if (errno == EAGAIN) continue;
+                bb_error("zmq_send()");
+                break;
+        }
+
+        zmq_msg_close(&z_i);
+        zmq_msg_close(&z_sid);
+        zmq_msg_close(&z_t);
+        zmq_msg_close(&z_body);
+
+}
+
+void bb_zmq_send_msg(char *identity, size_t identity_len, char *sid, size_t sid_len, char *t, size_t t_len, char *body, size_t body_len) {
+
+        ev_feed_event(blastbeat.loop, &blastbeat.event_zmq, EV_READ);
+        bb_raw_zmq_send_msg(identity, identity_len, sid, sid_len, t, t_len, body, body_len);
+}
+
+
+
 static void update_dealer(struct bb_dealer *bbd, time_t now) {
 	bbd->last_seen = now;
 	if (bbd->status == BLASTBEAT_DEALER_OFF) {

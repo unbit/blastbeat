@@ -65,6 +65,28 @@ void bb_ssl_info_cb(SSL const *ssl, int where, int ret) {
         }
 }
 
+static int bb_spdy_pass_body(struct bb_connection *bbc) {
+	bbc->spdy_stream_id = ntohl(bbc->spdy_stream_id);
+	if (bbc->spdy_stream_id == 0) return -1;
+	// find the stream
+	struct bb_session *bbs = bbc->sessions_head;
+	while(bbs) {
+		if (bbs->stream_id == bbc->spdy_stream_id) {
+			goto found;
+		}
+		bbs = bbs->next;
+	}
+	return -1;
+found:
+	if (!bbs->dealer) return -1;	
+	bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "body", 4, bbc->spdy_body_buf, bbc->spdy_length);
+	if (bbc->spdy_flags == 0x01) {
+		bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "body", 4, "", 0);
+	}
+	return 0;
+
+}
+
 static int bb_spdy_uwsgi(struct bb_session_request *bbsr, char *ptr, uint16_t hlen) {
 
         // allocate the first chunk (leaving space for 4 bytes uwsgi header)
@@ -360,20 +382,20 @@ static int bb_spdy_inflate(struct bb_session_request *bbsr, char *buf, size_t le
 
 static void bb_spdy_header(struct bb_connection *bbc) {
 	bbc->spdy_control = (bbc->spdy_header_buf[0] >> 7) & 0x01;
-	if (bbc->spdy_control) {
-		bbc->spdy_header_buf[0] = bbc->spdy_header_buf[0] & 0x7f;
-		memcpy(&bbc->spdy_version, bbc->spdy_header_buf, 2);
-		bbc->spdy_version = ntohs(bbc->spdy_version);
-		memcpy(&bbc->spdy_type, bbc->spdy_header_buf + 2, 2);
-		bbc->spdy_type = ntohs(bbc->spdy_type);
-	}
-	else {
-		memcpy(&bbc->spdy_control, bbc->spdy_header_buf, 4);
-	}
+	bbc->spdy_header_buf[0] = bbc->spdy_header_buf[0] & 0x7f;
+	memcpy(&bbc->spdy_version, bbc->spdy_header_buf, 2);
+	bbc->spdy_version = ntohs(bbc->spdy_version);
 	bbc->spdy_flags = bbc->spdy_header_buf[4];
 	void *slp = &bbc->spdy_length;
 	memcpy(slp+1, bbc->spdy_header_buf + 5, 3);
 	bbc->spdy_length = ntohl(bbc->spdy_length);
+	if (bbc->spdy_control) {
+		memcpy(&bbc->spdy_type, bbc->spdy_header_buf + 2, 2);
+		bbc->spdy_type = ntohs(bbc->spdy_type);
+	}
+	else {
+		memcpy(&bbc->spdy_stream_id, bbc->spdy_header_buf, 4);
+	}
 }
 
 static int bb_manage_spdy_msg(struct bb_connection *bbc) {
@@ -450,7 +472,12 @@ int bb_manage_spdy(struct bb_connection *bbc, char *buf, ssize_t len) {
 				if (remains >= (bbc->spdy_length - bbc->spdy_body_pos)) {
 					memcpy(bbc->spdy_body_buf + bbc->spdy_body_pos , buf + (len - remains), (bbc->spdy_length - bbc->spdy_body_pos));
 					remains -= (bbc->spdy_length - bbc->spdy_body_pos);
-					if (bb_manage_spdy_msg(bbc)) {
+					if (bbc->spdy_type == 0) {
+						if (bb_spdy_pass_body(bbc)) {
+							return -1;
+						}
+					}
+					else if (bb_manage_spdy_msg(bbc)) {
 						return -1;
 					}
 					// reset SPDY parser
@@ -462,6 +489,7 @@ int bb_manage_spdy(struct bb_connection *bbc, char *buf, ssize_t len) {
 					bbc->spdy_header_pos = 0;
 					bbc->spdy_body_pos = 0;
 					bbc->spdy_stream_id = 0;
+					bbc->spdy_type = 0;
 					break;
 				}
 				memcpy(bbc->spdy_body_buf + bbc->spdy_body_pos , buf + (len - remains), remains);

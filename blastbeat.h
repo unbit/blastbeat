@@ -279,7 +279,10 @@ struct bb_session_request *bb_new_request(struct bb_session *);
 void bb_connection_close(struct bb_connection *);
 void bb_session_close(struct bb_session *);
 
+void bb_raw_zmq_send_msg(char *, size_t, char *, size_t, char *, size_t, char *, size_t);
+void bb_zmq_send_msg(char *, size_t, char *, size_t, char *, size_t, char *, size_t);
 void bb_zmq_receiver(struct ev_loop *, struct ev_io *, int);
+
 void bb_ssl_info_cb(SSL const *, int, int);
 
 int add_uwsgi_item(struct bb_session_request *, char *, uint16_t, char *val, uint16_t, int);
