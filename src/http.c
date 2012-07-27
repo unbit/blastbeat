@@ -97,15 +97,7 @@ static int response_headers_complete(http_parser *parser) {
 }
 
 static int bb_session_headers_complete(http_parser *parser) {
-        //printf("headers parsed\n");
         struct bb_session_request *bbsr = (struct bb_session_request *) parser->data;
-        off_t i;
-        //printf("%s %.*s HTTP/%d.%d\n", http_method_str(parser->method), (int) bbsr->headers[0].keylen, bbsr->headers[0].key, parser->http_major, parser->http_minor);
-        /*
-        for(i=1;i<=bbsr->header_pos;i++) {
-                printf("%.*s: %.*s\n", (int) bbsr->headers[i].keylen, bbsr->headers[i].key, (int)bbsr->headers[i].vallen, bbsr->headers[i].value);
-        }
-        */
 
         // ok get the Host header
         struct bb_http_header *bbhh = bb_http_req_header(bbsr, "Host", 4);

@@ -24,7 +24,7 @@ static void bb_main_config_add(char *, char *);
 static void bb_vhost_config_add(char *, char *, char *);
 
 static struct bb_acceptor *bb_get_acceptor(char *addr, int shared, void (*func)(struct bb_acceptor *)) {
-	struct bb_acceptor *last_acceptor, *acceptor;
+	struct bb_acceptor *last_acceptor = NULL, *acceptor;
 	union bb_addr bba;
 	socklen_t addr_len;
 	memset(&bba, 0, sizeof(bba));

@@ -87,8 +87,8 @@ ssize_t bb_ssl_write(struct bb_connection *bbc, char *buf, size_t len) {
 
 #ifdef OPENSSL_NPN_UNSUPPORTED
 static int bb_ssl_npn(SSL *ssl, const unsigned char **data, unsigned int *len, void *arg) {
-        *data = "\x06spdy/2\x08http/1.1\x08http/1.0";
-        *len = strlen(*data);
+        *data = (const unsigned char *) "\x06spdy/2\x08http/1.1\x08http/1.0";
+        *len = strlen((const char *) *data);
         return SSL_TLSEXT_ERR_OK;
 }
 #endif

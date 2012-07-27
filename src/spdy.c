@@ -51,7 +51,7 @@ void bb_ssl_info_cb(SSL const *ssl, int where, int ret) {
 				bb_connection_close(bbc);
 				return;
 			}
-                        if (deflateSetDictionary(&bbc->spdy_z_out, spdy_dictionary, sizeof(spdy_dictionary)) != Z_OK) {
+                        if (deflateSetDictionary(&bbc->spdy_z_out, (Bytef *) spdy_dictionary, sizeof(spdy_dictionary)) != Z_OK) {
 				bb_connection_close(bbc);
 				return;
 			}
@@ -186,9 +186,9 @@ static char *bb_spdy_deflate(z_stream *z, char *buf, size_t len, size_t *dlen) {
 		return NULL;
 	}
         z->avail_in = len;
-        z->next_in = buf;
+        z->next_in = (Bytef *) buf;
         z->avail_out = len+30;
-        z->next_out = dbuf;
+        z->next_out = (Bytef *) dbuf;
 
         if (deflate(z, Z_SYNC_FLUSH) != Z_OK) {
 		return NULL;
@@ -341,7 +341,7 @@ static int bb_spdy_inflate(struct bb_session_request *bbsr, char *buf, size_t le
 	off_t pos = 0;
 
 	bbc->spdy_z_in.avail_in = len - 10;
-	bbc->spdy_z_in.next_in = buf + 10;
+	bbc->spdy_z_in.next_in = (Bytef *) buf + 10;
 
 	while(bbc->spdy_z_in.avail_in > 0) {
 		// calculate destination buffer
@@ -354,11 +354,11 @@ static int bb_spdy_inflate(struct bb_session_request *bbsr, char *buf, size_t le
 		dbuf = tmp_buf;
 
 		bbc->spdy_z_in.avail_out = 4096;
-		bbc->spdy_z_in.next_out = zbuf;
+		bbc->spdy_z_in.next_out = (Bytef *) zbuf;
 
 		int ret = inflate(&bbc->spdy_z_in, Z_NO_FLUSH);
 		if (ret == Z_NEED_DICT) {
-			inflateSetDictionary(&bbc->spdy_z_in, spdy_dictionary, sizeof(spdy_dictionary));
+			inflateSetDictionary(&bbc->spdy_z_in, (Bytef *) spdy_dictionary, sizeof(spdy_dictionary));
 			ret = inflate(&bbc->spdy_z_in, Z_NO_FLUSH);
 		}
 		if (ret != Z_OK) return -1;
@@ -368,7 +368,7 @@ static int bb_spdy_inflate(struct bb_session_request *bbsr, char *buf, size_t le
 	}
 
 
-	uint16_t klen, vlen, hlen = 0;
+	uint16_t hlen = 0;
 	memcpy(&hlen, dbuf, 2);
 	hlen = ntohs(hlen);
 
@@ -406,7 +406,6 @@ static int bb_manage_spdy_msg(struct bb_connection *bbc) {
 			bbc->spdy_body_buf[0] = bbc->spdy_body_buf[0] &0x7f;
 			memcpy(&bbc->spdy_stream_id, bbc->spdy_body_buf, 4);
 			bbc->spdy_stream_id = ntohl(bbc->spdy_stream_id);
-			size_t dlen = 0;
 			struct bb_session *bbs = bb_session_new(bbc);
 			bbs->stream_id = bbc->spdy_stream_id;
 			struct bb_session_request *bbsr = bb_new_request(bbs);

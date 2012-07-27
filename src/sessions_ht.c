@@ -70,7 +70,7 @@ struct bb_session *bb_sht_get(char *uuid) {
 
 void bb_sht_add(struct bb_session *bbs) {
 	// generate the uuid for the request
-	uuid_generate(&bbs->uuid_part1);
+	uuid_generate((unsigned char *)&bbs->uuid_part1);
 	// get the hash
 	uint32_t ht_pos = djb2_hash_uuid((char *) &bbs->uuid_part1, blastbeat.sht_size);	
 	// get the ht entry

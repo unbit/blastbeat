@@ -1,6 +1,7 @@
 #include "../blastbeat.h"
 
 static char *base64(char *str, size_t *len) {
+	char *buf = NULL;
         BIO *b64, *bmem;
         BUF_MEM *bptr;
 
@@ -9,15 +10,16 @@ static char *base64(char *str, size_t *len) {
         bmem = BIO_new(BIO_s_mem());
         b64 = BIO_push(b64, bmem);
         BIO_write(b64, str, *len);
-        BIO_flush(b64);
+        if (BIO_flush(b64)) {
+		goto clear;
+	}
         BIO_get_mem_ptr(b64, &bptr);
 
-        char *buf = malloc(bptr->length-1);
+        buf = malloc(bptr->length-1);
         memcpy(buf, bptr->data, bptr->length-1);
         *len = bptr->length-1;
+clear:
         BIO_free_all(b64);
-
-
         return buf;
 }
 
@@ -26,7 +28,7 @@ static void sha1(char *body, size_t len, char *dst) {
         SHA1_Init(&sha);
         SHA1_Update(&sha, body, len);
         SHA1_Update(&sha, "258EAFA5-E914-47DA-95CA-C5AB0DC85B11", 36);
-        SHA1_Final(dst, &sha);
+        SHA1_Final((unsigned char *)dst, &sha);
 }
 
 
@@ -34,10 +36,11 @@ int bb_send_websocket_handshake(struct bb_session_request *bbsr) {
 	char sha[20];
         struct bb_http_header *swk = bb_http_req_header(bbsr, "sec-websocket-key", 17);
         if (!swk) return -1;
-        struct bb_http_header *origin = bb_http_req_header(bbsr, "origin", 6);
+        //struct bb_http_header *origin = bb_http_req_header(bbsr, "origin", 6);
         sha1(swk->value, swk->vallen, sha);
         size_t b_len = 20;
         char *b64 = base64(sha, &b_len);
+	if (!b64) return -1;
         bbsr->http_major = '0' + bbsr->parser.http_major;
         bbsr->http_minor = '0' + bbsr->parser.http_minor;
 
@@ -66,7 +69,7 @@ int bb_manage_websocket_header(struct bb_session_request *bbsr, char byte1, char
 	return -1;
 }
 
-int bb_websocket_pass(struct bb_session_request *bbsr, char *buf, ssize_t len) {
+void bb_websocket_pass(struct bb_session_request *bbsr, char *buf, ssize_t len) {
         bb_zmq_send_msg(bbsr->bbs->dealer->identity, bbsr->bbs->dealer->len, (char *) &bbsr->bbs->uuid_part1, BB_UUID_LEN, "websocket", 9, buf, len);
 }
 

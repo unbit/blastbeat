@@ -17,8 +17,21 @@ routing:
 
 */
 
+#define on_cmd(x) if (!strncmp(command, x, command_len))
+
 extern http_parser_settings bb_http_response_parser_settings;
 extern http_parser_settings bb_http_response_parser_settings2;
+
+static char *bb_get_route(char *buf, size_t len, size_t *rlen) {
+	while(len>0) {
+		if (buf[len--] == ':') {
+			*rlen = len+1;
+			return buf;
+		}
+	}
+
+	return NULL;
+}
 
 void bb_raw_zmq_send_msg(char *identity, size_t identity_len, char *sid, size_t sid_len, char *t, size_t t_len, char *body, size_t body_len) {
 
@@ -96,7 +109,6 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
                 if (zmq_events & ZMQ_POLLIN) {
                         uint64_t more = 0;
                         size_t more_size = sizeof(more);
-                        int headers = 0;
                         int i;
                         zmq_msg_t msg[4];
                         for(i=0;i<4;i++) {
@@ -133,7 +145,17 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 
 			update_dealer(bbs->dealer, time(NULL));
 
-                        if (!strncmp(zmq_msg_data(&msg[2]), "body", zmq_msg_size(&msg[2]))) {
+			char *command = zmq_msg_data(&msg[2]);
+			size_t command_len = zmq_msg_size(&msg[2]);
+
+			size_t route_len = 0;
+			char *route = bb_get_route(command, command_len, &route_len);
+			if (route) {
+				command = route + route_len + 1;
+				command_len-=(route_len+1);
+			}
+
+			on_cmd("body") {
                                 if (!bbs->connection->spdy) {
                                         if (bb_wq_push_copy(bbs->connection,zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]), 1)) {
                                                 bb_connection_close(bbs->connection);
@@ -153,20 +175,20 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
                                 goto next;
                         }
 
-                        if (!strncmp(zmq_msg_data(&msg[2]), "websocket", zmq_msg_size(&msg[2]))) {
+			on_cmd("websocket") {
                                 if (bb_websocket_reply(bbsr, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3])))
                                         bb_connection_close(bbs->connection);
                                 goto next;
                         }
 
-                        if (!strncmp(zmq_msg_data(&msg[2]), "chunk", zmq_msg_size(&msg[2]))) {
+			on_cmd("chunk") {
                                 if (bb_manage_chunk(bbsr, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3])))
                                         bb_connection_close(bbs->connection);
                                 goto next;
                         }
 
 
-			if (!strncmp(zmq_msg_data(&msg[2]), "headers", zmq_msg_size(&msg[2]))) {
+			on_cmd("headers") {
                                 if (!bbs->connection->spdy) {
                                         http_parser parser;
                                         http_parser_init(&parser, HTTP_RESPONSE);
@@ -196,7 +218,7 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
                                 goto next;
                         }
 
-                        if (!strncmp(zmq_msg_data(&msg[2]), "retry", zmq_msg_size(&msg[2]))) {
+			on_cmd("retry") {
                                 if (bbs->hops >= blastbeat.max_hops) {
                                         bb_connection_close(bbs->connection);
                                         goto next;
@@ -210,7 +232,7 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
                                 goto next;
                         }
 
-                        if (!strncmp(zmq_msg_data(&msg[2]), "end", zmq_msg_size(&msg[2]))) {
+			on_cmd("end") {
 				if (!bbs->connection->spdy) {
                                 	if (bb_wq_push_close(bbs->connection)) {
                                         	bb_connection_close(bbs->connection);

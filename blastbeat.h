@@ -4,6 +4,8 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <net/if.h>
+#include <arpa/inet.h>
 #include <stdlib.h>
 #include <string.h>
 #include <fcntl.h>
@@ -23,6 +25,8 @@
 #include <pwd.h>
 #include <grp.h>
 #include <zlib.h>
+#include <uuid/uuid.h>
+#include <ctype.h>
 
 #define MAX_HEADERS 100
 
@@ -261,12 +265,19 @@ struct blastbeat_server {
 
 };
 
+void bb_ini_config(char *);
 
 void bb_error(char *);
+void bb_error_exit(char *);
+
 struct bb_http_header *bb_http_req_header(struct bb_session_request *, char *, size_t);
 int bb_set_dealer(struct bb_session *, char *, size_t);
 int bb_uwsgi(struct bb_session_request *);
+int bb_manage_chunk(struct bb_session_request *, char *, size_t);
+
 struct bb_session *bb_sht_get(char *);
+void bb_sht_remove(struct bb_session *);
+void bb_sht_add(struct bb_session *);
 
 void bb_wq_callback(struct ev_loop *, struct ev_io *, int);
 int bb_wq_push(struct bb_connection *, char *, size_t, int);
@@ -293,3 +304,14 @@ void bb_ssl_info_cb(SSL const *, int, int);
 int add_uwsgi_item(struct bb_session_request *, char *, uint16_t, char *val, uint16_t, int);
 
 void bb_socket_ssl(struct bb_acceptor *);
+
+int bb_stricmp(char *, size_t, char *, size_t);
+int bb_strcmp(char *, size_t, char *, size_t);
+
+int bb_manage_websocket(struct bb_session_request *, char *, ssize_t);
+int bb_send_websocket_handshake(struct bb_session_request *);
+int bb_websocket_reply(struct bb_session_request *, char *, size_t);
+
+int bb_manage_spdy(struct bb_connection *, char *, ssize_t);
+int bb_spdy_send_body(struct bb_session_request *, char *, size_t);
+int bb_spdy_send_headers(struct bb_session_request *);
