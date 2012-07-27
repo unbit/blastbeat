@@ -2,6 +2,21 @@
 
 extern struct blastbeat_server blastbeat;
 
+/* message format (from dealers)
+
+
+SID (used for authroization and for getting the sender session)
+TYPE (used for message type and routing)
+BODY (body of message)
+
+routing:
+
+'type' -> standard blastbeat->peer peer->blastbeat
+'group:type' -> message router to a group
+'@sid:type' -> message routed to a specific session
+
+*/
+
 extern http_parser_settings bb_http_response_parser_settings;
 extern http_parser_settings bb_http_response_parser_settings2;
 
