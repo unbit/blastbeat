@@ -39,6 +39,9 @@
 #define BLASTBEAT_TYPE_WEBSOCKET        1
 #define BLASTBEAT_TYPE_SPDY		2
 
+#define BLASTBEAT_DEALER_OFF		0
+#define BLASTBEAT_DEALER_AVAILABLE	1
+
 struct bb_virtualhost;
 struct bb_session;
 
@@ -51,8 +54,9 @@ struct bb_str_list {
 struct bb_dealer {
         char *identity;
 	size_t len;
-        char *identify_prefix;
         time_t last_seen;
+	int status;
+	uint64_t load;
         struct bb_dealer *next;
 };
 

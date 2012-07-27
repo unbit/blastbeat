@@ -105,6 +105,12 @@ static void bb_session_clear(struct bb_session *bbs) {
 
                 // if linked to a dealer, send a 'end' message
                 if (bbs->dealer) {
+			if (bbs->dealer > 0) {
+				bbs->dealer->load--;
+			}
+			else {
+				fprintf(stderr,"BUG IN DEALER LOAD MANAGEMENT\n");
+			}
                         bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "end", 3, "", 0);
                 }
 
@@ -231,6 +237,7 @@ int bb_set_dealer(struct bb_session *bbs, char *name, size_t len) {
 			if (vhost->dealers) {
 				bbs->dealer = vhost->dealers->dealer;
 				bbs->vhost = vhost;
+				bbs->dealer->load++;
 				return 0;
 			}
 		}

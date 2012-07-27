@@ -302,7 +302,7 @@ int bb_spdy_send_body(struct bb_session_request *bbsr, char *buf, size_t len) {
 	memcpy(spdy+5, sl+1, 3);
 	memcpy(spdy + 8, buf, len);
 
-	if (bb_wq_push(bbsr->bbs->connection, spdy, len+8, 0)) {
+	if (bb_wq_push(bbsr->bbs->connection, spdy, len+8, 1)) {
 		return -1;
 	}
 

@@ -5,12 +5,21 @@ extern struct blastbeat_server blastbeat;
 extern http_parser_settings bb_http_response_parser_settings;
 extern http_parser_settings bb_http_response_parser_settings2;
 
+static void update_dealer(struct bb_dealer *bbd, time_t now) {
+	bbd->last_seen = now;
+	if (bbd->status == BLASTBEAT_DEALER_OFF) {
+		bbd->status = BLASTBEAT_DEALER_AVAILABLE;
+		fprintf(stderr, "node \"%s\" is available\n", bbd->identity);
+	}	
+}
+
 static void manage_ping(char *identity, size_t len) {
 	struct bb_dealer *bbd = blastbeat.dealers;
 	time_t now = time(NULL);
 	while(bbd) {
 		if (!bb_strcmp(identity, len, bbd->identity, bbd->len)) {
-			bbd->last_seen = now;
+			update_dealer(bbd, now);
+			return;
 		}
 		bbd = bbd->next;
 	}
@@ -66,7 +75,7 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
                         // no request running ?
                         if (!bbsr) goto next;
 
-			bbs->dealer->last_seen = time(NULL);
+			update_dealer(bbs->dealer, time(NULL));
 
                         if (!strncmp(zmq_msg_data(&msg[2]), "body", zmq_msg_size(&msg[2]))) {
                                 if (!bbs->connection->spdy) {
@@ -146,9 +155,15 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
                         }
 
                         if (!strncmp(zmq_msg_data(&msg[2]), "end", zmq_msg_size(&msg[2]))) {
-                                if (bb_wq_push_close(bbs->connection)) {
-                                        bb_connection_close(bbs->connection);
-                                }
+				if (!bbs->connection->spdy) {
+                                	if (bb_wq_push_close(bbs->connection)) {
+                                        	bb_connection_close(bbs->connection);
+                                	}
+				}
+				else {
+                                        if (bb_spdy_send_body(bbsr, "", 0))
+                                                bb_session_close(bbs);
+				}
                                 goto next;
                         }
 
