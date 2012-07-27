@@ -23,7 +23,7 @@ the same backend node.
 * chunk (response will encode the message in a HTTP chunk, REMEMBER: set the correct Transfer-Encoding in your
 header) 
 
-* end (request/response close the connection, REMEMBER: BlastBeat supports persistent connections !!!)
+* end (request/response close the connection of HTTP requests and the stream of a SPDY one, REMEMBER: BlastBeat supports HTTP persistent connections !!!)
 
 * websocket (request/response contains a websocket message)
 
