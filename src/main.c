@@ -234,12 +234,27 @@ int bb_set_dealer(struct bb_session *bbs, char *name, size_t len) {
 	struct bb_virtualhost *vhost = acceptor->vhosts;
 	while(vhost) {
 		if (!bb_stricmp(name, len, vhost->name, vhost->len)) {
-			if (vhost->dealers) {
-				bbs->dealer = vhost->dealers->dealer;
+			struct bb_vhost_dealer *bbvd = vhost->dealers;
+			struct bb_dealer *best_dealer = NULL;
+			while(bbvd) {
+				if (bbvd->dealer->status == BLASTBEAT_DEALER_OFF) goto next;
+				if (!best_dealer) {
+					best_dealer = bbvd->dealer;
+				}
+				else if (bbvd->dealer->load < best_dealer->load) {
+					best_dealer = bbvd->dealer;
+				}
+next:
+				bbvd = bbvd->next;
+			}
+		
+			if (best_dealer) {
+				best_dealer->load++;
+				bbs->dealer = best_dealer;
 				bbs->vhost = vhost;
-				bbs->dealer->load++;
 				return 0;
 			}
+			return -1;
 		}
 		vhost = vhost->next;
 	}
@@ -375,7 +390,12 @@ static void pinger_cb(struct ev_loop *loop, struct ev_timer *w, int revents) {
 	ev_feed_event(blastbeat.loop, &blastbeat.event_zmq, EV_READ);
 	time_t now = time(NULL);
 	while(bbd) {
-		if (now - bbd->last_seen > blastbeat.ping_freq) {
+		time_t delta = now - bbd->last_seen;
+		if (delta > blastbeat.ping_freq) {
+			if (delta > (blastbeat.ping_freq * 3) && bbd->status == BLASTBEAT_DEALER_AVAILABLE) {
+				bbd->status = BLASTBEAT_DEALER_OFF;
+				fprintf(stderr,"mode \"%s\" is OFF\n", bbd->identity);
+			}
 			bb_raw_zmq_send_msg(bbd->identity, bbd->len, "", 0, "ping", 4, "", 0);
 		}
 		bbd = bbd->next;
