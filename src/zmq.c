@@ -232,6 +232,21 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
                                 goto next;
                         }
 
+			on_cmd("msg") {
+				if (!route) goto next;
+				// check if it is a direct message
+				if (route[0] == '@') {
+					if (route_len == BB_UUID_LEN+1) {
+						// cannot send messages to myself
+						if (!memcmp(route+1, (char *) &bbs->uuid_part1, BB_UUID_LEN)) goto next;
+						struct bb_session *bbs_dest = bb_sht_get(route+1);
+						if (!bbs_dest) goto next;
+						if (!bbs_dest->dealer) goto next;
+						bb_zmq_send_msg(bbs_dest->dealer->identity, bbs_dest->dealer->len, route+1, BB_UUID_LEN, "msg", 3, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]));
+					}
+				}
+			}
+
 			on_cmd("end") {
 				if (!bbs->connection->spdy) {
                                 	if (bb_wq_push_close(bbs->connection)) {
