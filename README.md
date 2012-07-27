@@ -40,7 +40,13 @@ you need openssl,zeromq,zlib and libev development headers:
 
 apt-get build-essential install libssl-dev libev-dev libzmq-dev libz-dev
 
-should be enough
+should be enough for a Debian/Ubuntu system
+
+while
+
+brew install libev zmq ossp-uuid
+
+should be enough for OSX
 
 run make to build the blastbeat daemon
 
@@ -54,7 +60,7 @@ allowed virtualhosts
 bind = 0.0.0.0:8080
 zmq = tcp://0.0.0.0:5000
 
-[blastbeat:localhost:8000]
+[blastbeat:localhost:8080]
 node = foobar1
 ```
 
@@ -66,7 +72,7 @@ The blastbeat server will start receiving HTTP request to the 8080 port and will
 connected to the zmq router on port 5000.
 
 
-You can bind specific virtualhost to specific address (as required by https) including bind options in the virtualhost config
+You can bind specific virtualhost to specific address (as required by https) including bind/bind-ssl options in the virtualhost config
 
 ```ini
 [blastbeat]
@@ -88,7 +94,7 @@ to use HTTPS just specify bind-ssl, certificate and key options:
 bind = 0.0.0.0:8080
 zmq = tcp://0.0.0.0:5000
 
-[blastbeat:localhost:8000]
+[blastbeat:localhost:8080]
 node = foobar1
 
 [blastbeat:secure.local]
@@ -104,7 +110,7 @@ key = foo.key
 Backend nodes talk will blastbeat via a zmq dealer socket. That socket has to set a valid identity based on the node name
 expected by the virtualhost.
 
-In the previous example we have the localhost:8000 virtualhost expecting a single backend node with an identity of 'foobar1'
+In the previous example we have the localhost:8080 virtualhost expecting a single backend node with an identity of 'foobar1'
 
 Identity is a form of authorization for allowing ISPs to host a single blastbeat server for their customers.
 
@@ -127,10 +133,43 @@ while True:
     print 'received a message of type %s' % msg_type
 ```
 
+You can have all of the backends you need for each virtualhost. Just add multiple 'node' entries
+
+```ini
+[blastbeat]
+bind = 0.0.0.0:8080
+zmq = tcp://0.0.0.0:5000
+
+[blastbeat:localhost:8080]
+node = foobar1
+
+[blastbeat:secure.local]
+node = foobar2
+node = foobar3
+node = foobar4
+node = foobar5
+bind-ssl = 0.0.0.0:443
+certificate = foo.pem
+key = foo.key
+```
+
+Each node will be load-balanced using a "least connection" algorithm, dead/available nodes are detected via the ping/pong susbsystem
+
+Load balancing for HTTP/HTTPS requests is per-connection, while in SPDY mode is per-stream, so a single SPDY session could be load-balanced to
+multiple nodes automagically
+
 ## WebSockets
 
 WebSocket requests are automagically managed by BlastBeat. You do not need to manage the handshake, as soon as BlastBeat
 has completed the connection, you will start receiving messages of type 'websocket'
+
+## SPDY (v2)
+
+If the client supports SPDY 2 protocol, it will be preferred over HTTPS.
+
+Each stream is mapped to a different sid.
+
+To end a stream just send a 'end' message or an empty 'body' message.
 
 ## using the sid (for concurrency)
 
