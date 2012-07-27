@@ -196,6 +196,8 @@ while True:
             continue
 ```
 
+Websockets over https are supported, just use the wss:// form in your javascript code
+
 ## SPDY (v2)
 
 If the client supports SPDY 2 protocol, it will be preferred over HTTPS.
