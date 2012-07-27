@@ -172,6 +172,19 @@ multiple nodes automagically
 WebSocket requests are automagically managed by BlastBeat. You do not need to manage the handshake, as soon as BlastBeat
 has completed the connection, you will start receiving messages of type 'websocket'
 
+An echo service would be something like that:
+
+```python
+while True:
+        # receive a blastbeat message
+        sid, msg_type, msg_body = socket.recv_multipart()
+        if msg_type == 'websocket':
+            zmq.send(sid, zmq.SNDMORE)
+            zmq.send('websocket', zmq.SNDMORE)
+            zmq.send("received: %s" % msg_body)
+            continue
+```
+
 ## SPDY (v2)
 
 If the client supports SPDY 2 protocol, it will be preferred over HTTPS.
