@@ -33,6 +33,17 @@ header. SPDY sessions do not support chunked messages)
 
 * retry (response, ask BlastBeat to make the same request to another node REMEMBER: there is a maximum of 'retry' messages per-session)
 
+Commands in development/study/analysis
+
+* move (move the session to another node)
+
+* push (SPDY push service)
+
+* join (join a BlastBeat group, it is required for sending messages to peers in the same group)
+
+* goaway (SPDY-friendly connection interruption)
+
+feel free to propose your ideas...
 
 ## building it
 
