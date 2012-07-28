@@ -33,6 +33,8 @@ header. SPDY sessions do not support chunked messages)
 
 * retry (response, ask BlastBeat to make the same request to another node REMEMBER: there is a maximum of 'retry' messages per-session)
 
+* msg (internal, route a message to a session or a group)
+
 Commands in development/study/analysis
 
 * move (move the session to another node)
@@ -41,9 +43,20 @@ Commands in development/study/analysis
 
 * join (join a BlastBeat group, it is required for sending messages to peers in the same group)
 
+* leave (leave a BlastBeat group)
+
 * goaway (SPDY-friendly connection interruption)
 
 feel free to propose your ideas...
+
+Some message type can be 'routed' using a special syntax for the 'type' part:
+
+group:type -> will route the message to a BlastBeat group
+@sid:type -> will route the message to an active session
+
+Routing has a different meaning based on the type, for example, routing a websocket message
+will send websocket packets to the related clients, while routing a msg will generate another zeromq
+message for the relevant dealer. Message types not supporting routing will simply ignore the part before the last colon.
 
 ## building it
 
