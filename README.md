@@ -52,6 +52,7 @@ feel free to propose your ideas...
 Some message type can be 'routed' using a special syntax for the 'type' part:
 
 group:type -> will route the message to a BlastBeat group
+
 @sid:type -> will route the message to an active session
 
 Routing has a different meaning based on the type, for example, routing a websocket message
