@@ -176,8 +176,24 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
                         }
 
 			on_cmd("websocket") {
+				if (route) {
+					struct bb_group *bbg = bb_ght_get(bbs->vhost, route, route_len);
+                                        if (!bbg) goto next;
+                                        struct bb_group_session *bbgs = bbg->sessions;
+                                        while(bbgs) {
+						// route to myself only at the end
+						if (bbgs->session != bbs) {
+							if (bbgs->session->requests_tail) {
+                                				if (bb_websocket_reply(bbgs->session->requests_tail, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3])))
+                                        				bb_connection_close(bbgs->session->connection);
+							}
+						}
+                                                bbgs = bbgs->next;
+                                        }
+
+				}
                                 if (bb_websocket_reply(bbsr, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3])))
-                                        bb_connection_close(bbs->connection);
+                                       	bb_connection_close(bbs->connection);
                                 goto next;
                         }
 
