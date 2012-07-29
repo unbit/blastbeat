@@ -10,7 +10,7 @@ static char *base64(char *str, size_t *len) {
         bmem = BIO_new(BIO_s_mem());
         b64 = BIO_push(b64, bmem);
         BIO_write(b64, str, *len);
-        if (BIO_flush(b64)) {
+        if (BIO_flush(b64) <= 0) {
 		goto clear;
 	}
         BIO_get_mem_ptr(b64, &bptr);
