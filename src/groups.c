@@ -29,25 +29,6 @@ When a session ends, it will be removed from all of the subscribed groups
 
 */
 
-#define BLASTBEAT_MAX_GROUPNAME_LEN	64
-
-struct bb_group_entry;
-struct bb_group {
-	char name[BLASTBEAT_MAX_GROUPNAME_LEN];
-	size_t len;
-	struct bb_virtualhost *vhost;
-	struct bb_group_entry *entry;
-	struct bb_group_session *sessions;
-	struct bb_group *prev;
-	struct bb_group *next;
-};
-
-struct bb_group_entry {
-        struct bb_group *head;
-        struct bb_group *tail;
-};
-
-
 static uint32_t djb2_hash_group(char *key, size_t len, uint32_t mask) {
 
         uint32_t hash = 5381;
@@ -65,10 +46,11 @@ static int bbg_compare(struct bb_group *bbg, char *name, size_t len) {
 	return !memcmp(bbg->name, name, len);
 }
 
+// get a group by its name
 static struct bb_group *ght_get(struct bb_virtualhost *vhost, char *name, size_t len) {
 
 	uint32_t ght_pos = djb2_hash_group(name, len, vhost->ght_size);
-        struct bb_group_entry *bbge = vhost->ght[ght_pos];
+        struct bb_group_entry *bbge = &vhost->ght[ght_pos];
         struct bb_group *bbg = bbge->head;
         while(bbg) {
                 if (bbg_compare(bbg, name, len)) {
@@ -78,6 +60,9 @@ static struct bb_group *ght_get(struct bb_virtualhost *vhost, char *name, size_t
         };
         return NULL;
 }
+
+// destroy a group
+// BE SURE no sessions are mapped to them !!!
 
 static void bb_group_destroy(struct bb_group *bbg) {
         // get the ht entry
@@ -102,26 +87,59 @@ static void bb_group_destroy(struct bb_group *bbg) {
 	free(bbg);
 }
 
+
+// leave a group
+
 int bb_leave_group(struct bb_session *bbs, char *name, size_t len) {
 	struct bb_group *bbg = ght_get(bbs->vhost, name, len);
 	if (!bbg) return -1;
+
+        struct bb_group_session *bbgs = bbg->sessions;
 
 	// search for the group in the session
 	struct bb_session_group *bbsg = bbs->groups;
 	while(bbsg) {
 		if (bbsg->group == bbg) {
+			// remove the group from the session
+			struct bb_session_group *prev = bbsg->prev;
+			struct bb_session_group *next = bbsg->next;
+			if (prev) {
+				prev->next = next;
+			}
+			if (next) {
+				next->prev = prev;
+			}
+			// fix bbs->groups (if required)
+			if (bbsg == bbs->groups) {
+				bbs->groups = next;
+			}
+			free(bbsg);
 			goto found;
 		}
 		bbsg = bbsg->next;
 	}
 	return 0;
 found:
-	// remove the group from the session
-	...
-
 	// remove the session from the group
 
-        ...
+	while(bbgs) {
+		if (bbgs->session == bbs) {
+			struct bb_group_session *prev = bbgs->prev;
+			struct bb_group_session *next = bbgs->next;
+			if (prev) {
+				prev->next = next;
+			}
+			if (next) {
+				next->prev = prev;
+			}
+			if (bbgs == bbg->sessions) {
+				bbg->sessions = next;
+			}
+			free(bbgs);
+			break;
+		}
+		bbgs = bbgs->next;
+	}
 
 	// no more sessions in the group, remove it
 	if (bbg->sessions == NULL) {
@@ -131,8 +149,51 @@ found:
 	return 0;
 }
 
-int bb_join_group(struct bb_session *bbs, char *name, size_t len) {
+// add the group to the hash table
 
+static struct bb_group *ght_add(struct bb_virtualhost *vhost, char *name, size_t len) {
+        // get the hash
+        uint32_t ht_pos = djb2_hash_group(name, len, vhost->ght_size);
+        // get the ht entry
+        struct bb_group_entry *bbge = &vhost->ght[ht_pos];
+
+	struct bb_group *bbg = malloc(sizeof(struct bb_group));
+	if (!bbg) {
+		bb_error("malloc()");
+		return NULL;
+	}
+	memcpy(bbg->name, name, len);
+	bbg->len = len;
+	bbg->vhost = vhost;
+	bbg->sessions = NULL;
+	
+        // append session to entry
+        if (!bbge->head) {
+                bbg->prev = NULL;
+                bbge->head = bbg;
+        }
+        else {
+                bbg->prev = bbge->tail;
+                bbge->tail->next = bbg;
+        }
+        bbg->entry = bbge;
+        bbg->next = NULL;
+        bbge->tail = bbg;
+
+	return bbg;
+}
+
+
+/* join a group */
+
+int bb_join_group(struct bb_session *bbs, char *name, size_t len) {
+	// validate group name
+	if (len > BLASTBEAT_MAX_GROUPNAME_LEN || len < 1) return -1;
+	if (name[0] == '@') return -1;
+	// get the groups mapped to the session
+	struct bb_session_group *last_bbsg=NULL,*bbsg = bbs->groups;
+
+	// get the group from the vhost
 	struct bb_group *bbg = ght_get(bbs->vhost, name, len);
 	// create group if it does not exist
 	if (!bbg) {
@@ -140,15 +201,18 @@ int bb_join_group(struct bb_session *bbs, char *name, size_t len) {
 	}
 	if (!bbg) return -1;
 
+	// get the list of already mapped sessions
 	struct bb_group_session *last_bbgs = NULL,*bbgs = bbg->sessions;
 	while(bbgs) {
+		// this session is already mapped to that group
 		if (bbgs->session == bbs) {
-			goto group;
+			goto found;
 		}
 		last_bbgs = bbgs;
 		bbgs = bbgs->next;
 	}
 
+	// create a new session mapped in a group
 	bbgs = malloc(sizeof(struct bb_group_session));
 	if (!bbgs) {
 		bb_error("malloc()");
@@ -159,15 +223,17 @@ int bb_join_group(struct bb_session *bbs, char *name, size_t len) {
 
 	if (last_bbgs) {
 		last_bbgs->next = bbgs;
+		bbgs->prev = last_bbgs;
 	}
 	else {
 		bbg->sessions = bbgs;
+		bbgs->prev = NULL;
 	}
 
-group:
+found:
 	// now add the group to the session
-	struct bb_session_group *last_bbsg,*bbsg = bbs->groups;
 	while(bbsg) {
+		// the session is already joined
 		if (bbsg->group == bbg) {
 			return 0;
 		}
@@ -175,6 +241,7 @@ group:
 		bbsg = bbsg->next;
 	}
 
+	// map the group into the session
 	bbsg = malloc(sizeof(struct bb_session_group));
         if (!bbsg) {
                 bb_error("malloc()");
@@ -185,9 +252,11 @@ group:
 
 	if (last_bbsg) {
 		last_bbsg->next = bbsg;
+		bbsg->prev = last_bbsg;
 	}
 	else {
 		bbs->groups = bbsg;
+		bbsg->prev = NULL;
 	}
 
 	return 0;

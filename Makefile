@@ -1,2 +1,13 @@
-all:
-	gcc -g -O2 -Wall -Wno-strict-aliasing -o blastbeat src/main.c src/config.c src/zmq.c src/http.c src/ssl.c src/spdy.c src/uwsgi.c src/websocket.c src/sessions_ht.c src/writequeue.c http-parser/http_parser.c -lzmq -lssl -lcrypto -lev -lz -luuid
+CFLAGS=-g -O2 -Wall -Wno-strict-aliasing
+LIBS=-lzmq -lssl -lcrypto -lev -lz -luuid
+
+OBJ = src/main.o src/config.o src/zmq.o src/http.o src/ssl.o src/spdy.o src/uwsgi.o src/websocket.o src/sessions_ht.o src/writequeue.o src/groups.o http-parser/http_parser.o
+
+
+all: $(OBJ)
+	$(CC) $(CFLAGS) -o blastbeat $(OBJ) $(LIBS)
+
+clean:
+	rm -f src/*.o http-parser/*.o
+
+$(OBJ): blastbeat.h

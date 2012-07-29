@@ -1,3 +1,4 @@
+/* BlastBeat */
 #include <ev.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -46,9 +47,12 @@
 #define BLASTBEAT_DEALER_OFF		0
 #define BLASTBEAT_DEALER_AVAILABLE	1
 
+#define BLASTBEAT_MAX_GROUPNAME_LEN     64
+
 struct bb_virtualhost;
 struct bb_session;
 
+// a dealer is a blackend node connecting to blastbeat
 struct bb_dealer {
         char *identity;
 	size_t len;
@@ -58,11 +62,13 @@ struct bb_dealer {
         struct bb_dealer *next;
 };
 
+// this is a dealer mapped to a virtualhost
 struct bb_vhost_dealer {
 	struct bb_dealer *dealer;
 	struct bb_vhost_dealer *next;
 };
 
+// the ev_io reader structure
 struct bb_reader {
 	ev_io reader;
 	struct bb_connection *connection;
@@ -70,12 +76,47 @@ struct bb_reader {
 
 struct bb_acceptor;
 
+// groups subsystem (each virtualhost has its pool of groups)
+struct bb_group_entry;
+struct bb_group {
+        char name[BLASTBEAT_MAX_GROUPNAME_LEN];
+        size_t len;
+        struct bb_virtualhost *vhost;
+        struct bb_group_entry *entry;
+        struct bb_group_session *sessions;
+        struct bb_group *prev;
+        struct bb_group *next;
+};
+
+struct bb_group_entry {
+        struct bb_group *head;
+        struct bb_group *tail;
+};
+
+struct bb_session_group {
+	struct bb_group *group;
+	struct bb_session_group *prev;
+	struct bb_session_group *next;
+};
+
+struct bb_group_session {
+	struct bb_session *session;
+	struct bb_group_session *prev;
+	struct bb_group_session *next;
+};
+
+
+// a blastbeat virtualhost
 struct bb_virtualhost {
 	char *name;
 	size_t len;
 
 	struct bb_vhost_acceptor *acceptors;
 	struct bb_vhost_dealer *dealers;
+
+	// the group hastable
+	uint32_t ght_size;
+	struct bb_group_entry *ght;
 
 	char *ssl_certificate;
 	char *ssl_key;
@@ -84,6 +125,7 @@ struct bb_virtualhost {
 };
 
 
+// structure defining an HTTP header
 struct bb_http_header {
         char *key;
         size_t keylen;
@@ -94,6 +136,7 @@ struct bb_http_header {
 struct bb_session;
 struct bb_session_entry;
 
+// each session can generate a specific request
 struct bb_session_request {
         struct bb_session *bbs;
         http_parser parser;
@@ -119,6 +162,8 @@ struct bb_session_request {
         struct bb_session_request *next;
 };
 
+
+// item for the write queue
 struct bb_writer_item {
 	char *buf;
 	off_t pos;
@@ -128,6 +173,7 @@ struct bb_writer_item {
 	struct bb_writer_item *next;
 };
 
+// the ev_io writer structure for the write queue
 struct bb_writer {
 	ev_io writer;
 	struct bb_connection *connection;
@@ -135,6 +181,7 @@ struct bb_writer {
 	struct bb_writer_item *tail;
 };
 
+// a connection from a peer to blastbeat
 struct bb_connection {
         int fd;
         struct bb_reader reader;
@@ -166,6 +213,7 @@ struct bb_connection {
 		
 };
 
+// a blastbeat session (in HTTP it is mapped to a connection, in SPDY it is mapped to a stream)
 struct bb_session {
 	// this is the uuid key splitten in 2 64bit numbers
 	uint64_t uuid_part1;
@@ -179,6 +227,7 @@ struct bb_session {
 	// contains the virtualhost mapped to the session
 	struct bb_virtualhost *vhost;
 
+	// if set, generate a new session_request structure
         int new_request;
         struct bb_session_request *requests_head;
         struct bb_session_request *requests_tail;
@@ -195,6 +244,9 @@ struct bb_session {
 	struct bb_connection *connection;
 	struct bb_session *conn_prev;
         struct bb_session *conn_next;
+
+	// subscribed group list
+	struct bb_session_group *groups;
 };
 
 struct bb_session_entry {
@@ -208,6 +260,7 @@ union bb_addr {
 	struct sockaddr_in6 in6;
 };
 
+// an acceptor is a bound socket
 struct bb_acceptor {
 	ev_io acceptor;
 	char *name;
@@ -217,22 +270,25 @@ struct bb_acceptor {
 	SSL_CTX *ctx;
 	ssize_t (*read)(struct bb_connection *, char *, size_t);
 	ssize_t (*write)(struct bb_connection *, char *, size_t);
-	// this is a string list of acceptor->vhost mappings
-	// required for building (later) the correct structure
+	// list of mapped virtualhosts
 	struct bb_acceptor_vhost *vhosts;
 	struct bb_acceptor *next;
 };
 
+// the list of virtualhosts mapped to an acceptor
 struct bb_acceptor_vhost {
 	struct bb_virtualhost *vhost;
 	struct bb_acceptor_vhost *next;
 };
 
+// the list of acceptors mapped to a vhost
 struct bb_vhost_acceptor {
 	struct bb_acceptor *acceptor;
 	struct bb_vhost_acceptor *next;
 };
 
+
+// the main server structure
 struct blastbeat_server {
 	struct bb_acceptor *acceptors;
 	struct bb_virtualhost *vhosts;
