@@ -45,6 +45,7 @@ static void bb_session_clear(struct bb_session *bbs) {
 
 	// remove the session from the hash table
         bb_sht_remove(bbs);
+		// remove requests
                 struct bb_session_request *bbsr = bbs->requests_head;
                 while(bbsr) {
                         // in spdy mode, the first header is empty
@@ -62,6 +63,13 @@ static void bb_session_clear(struct bb_session *bbs) {
                         bbsr = bbsr->next;
                         free(tmp_bbsr);
                 }
+		// remove groups
+		struct bb_session_group *bbsg = bbs->groups;
+		while(bbsg) {
+			struct bb_session_group *current_bbsg = bbsg;
+			bbsg = bbsg->next;
+			bb_session_leave_group(bbs, current_bbsg->group);
+		}
 
                 // if linked to a dealer, send a 'end' message
                 if (bbs->dealer) {
@@ -564,6 +572,11 @@ int main(int argc, char *argv[]) {
 	// validate config
 	if (!blastbeat.acceptors) {
 		fprintf(stderr, "config error: please specify at least one 'bind' directive\n");
+		exit(1);
+	}
+
+	if (!blastbeat.zmq) {
+		fprintf(stderr, "config error: please specify at least one 'zmq' directive\n");
 		exit(1);
 	}
 

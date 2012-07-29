@@ -247,6 +247,12 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 				}
 			}
 
+			on_cmd("join") {
+                                if (bb_join_group(bbs, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3])))
+                                	bb_session_close(bbs);
+                                goto next;
+                        }
+
 			on_cmd("end") {
 				if (!bbs->connection->spdy) {
                                 	if (bb_wq_push_close(bbs->connection)) {

@@ -117,6 +117,13 @@ static struct bb_virtualhost *get_or_create_vhost(char *vhostname) {
 	vhost->name = vhostname;
 	vhost->len = strlen(vhostname);
 
+	// create the groups hashtable
+	vhost->ght_size = 65536;
+	vhost->ght = malloc(sizeof(struct bb_group_entry) * vhost->ght_size);
+	if (!vhost->ght) {
+		bb_error_exit("malloc()");
+	}
+
 	if (last_vhost) {
 		last_vhost->next = vhost;
 	}

@@ -371,3 +371,6 @@ int bb_websocket_reply(struct bb_session_request *, char *, size_t);
 int bb_manage_spdy(struct bb_connection *, char *, ssize_t);
 int bb_spdy_send_body(struct bb_session_request *, char *, size_t);
 int bb_spdy_send_headers(struct bb_session_request *);
+
+int bb_join_group(struct bb_session *, char *, size_t);
+int bb_session_leave_group(struct bb_session *, struct bb_group *);

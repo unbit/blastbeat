@@ -94,7 +94,12 @@ int bb_leave_group(struct bb_session *bbs, char *name, size_t len) {
 	struct bb_group *bbg = ght_get(bbs->vhost, name, len);
 	if (!bbg) return -1;
 
-        struct bb_group_session *bbgs = bbg->sessions;
+	return bb_session_leave_group(bbs, bbg);
+}
+
+int bb_session_leave_group(struct bb_session *bbs, struct bb_group *bbg) {
+
+        struct bb_group_session *bbgs = NULL;
 
 	// search for the group in the session
 	struct bb_session_group *bbsg = bbs->groups;
@@ -121,7 +126,7 @@ int bb_leave_group(struct bb_session *bbs, char *name, size_t len) {
 	return 0;
 found:
 	// remove the session from the group
-
+	bbgs = bbg->sessions;
 	while(bbgs) {
 		if (bbgs->session == bbs) {
 			struct bb_group_session *prev = bbgs->prev;
@@ -145,6 +150,8 @@ found:
 	if (bbg->sessions == NULL) {
 		bb_group_destroy(bbg);
 	}
+
+
 
 	return 0;
 }
@@ -191,7 +198,7 @@ int bb_join_group(struct bb_session *bbs, char *name, size_t len) {
 	if (len > BLASTBEAT_MAX_GROUPNAME_LEN || len < 1) return -1;
 	if (name[0] == '@') return -1;
 	// get the groups mapped to the session
-	struct bb_session_group *last_bbsg=NULL,*bbsg = bbs->groups;
+	struct bb_session_group *last_bbsg=NULL,*bbsg = NULL;
 
 	// get the group from the vhost
 	struct bb_group *bbg = ght_get(bbs->vhost, name, len);
@@ -231,6 +238,7 @@ int bb_join_group(struct bb_session *bbs, char *name, size_t len) {
 	}
 
 found:
+	bbsg = bbs->groups;
 	// now add the group to the session
 	while(bbsg) {
 		// the session is already joined
