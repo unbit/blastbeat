@@ -47,7 +47,7 @@ static int bbg_compare(struct bb_group *bbg, char *name, size_t len) {
 }
 
 // get a group by its name
-static struct bb_group *ght_get(struct bb_virtualhost *vhost, char *name, size_t len) {
+struct bb_group *bb_ght_get(struct bb_virtualhost *vhost, char *name, size_t len) {
 
 	uint32_t ght_pos = djb2_hash_group(name, len, vhost->ght_size);
         struct bb_group_entry *bbge = &vhost->ght[ght_pos];
@@ -91,7 +91,7 @@ static void bb_group_destroy(struct bb_group *bbg) {
 // leave a group
 
 int bb_leave_group(struct bb_session *bbs, char *name, size_t len) {
-	struct bb_group *bbg = ght_get(bbs->vhost, name, len);
+	struct bb_group *bbg = bb_ght_get(bbs->vhost, name, len);
 	if (!bbg) return -1;
 
 	return bb_session_leave_group(bbs, bbg);
@@ -201,7 +201,7 @@ int bb_join_group(struct bb_session *bbs, char *name, size_t len) {
 	struct bb_session_group *last_bbsg=NULL,*bbsg = NULL;
 
 	// get the group from the vhost
-	struct bb_group *bbg = ght_get(bbs->vhost, name, len);
+	struct bb_group *bbg = bb_ght_get(bbs->vhost, name, len);
 	// create group if it does not exist
 	if (!bbg) {
 		bbg = ght_add(bbs->vhost, name, len);

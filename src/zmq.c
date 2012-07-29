@@ -245,6 +245,22 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 						bb_zmq_send_msg(bbs_dest->dealer->identity, bbs_dest->dealer->len, route+1, BB_UUID_LEN, "msg", 3, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]));
 					}
 				}
+				else {
+					struct bb_group *bbg = bb_ght_get(bbs->vhost, route, route_len);
+					if (!bbg) goto next;
+					struct bb_group_session *bbgs = bbg->sessions;
+					while(bbgs) {
+						// do not route messages to myself
+						if (bbgs->session != bbs) {
+							if (bbgs->session->dealer) {
+								bb_zmq_send_msg(bbgs->session->dealer->identity, bbgs->session->dealer->len,
+									(char *) &bbgs->session->uuid_part1, BB_UUID_LEN, "msg", 3, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]));
+							}
+						}
+						bbgs = bbgs->next;	
+					}
+				}
+				goto next;
 			}
 
 			on_cmd("join") {

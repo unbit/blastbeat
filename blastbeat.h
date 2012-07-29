@@ -374,3 +374,4 @@ int bb_spdy_send_headers(struct bb_session_request *);
 
 int bb_join_group(struct bb_session *, char *, size_t);
 int bb_session_leave_group(struct bb_session *, struct bb_group *);
+struct bb_group *bb_ght_get(struct bb_virtualhost *, char *, size_t);
