@@ -16,6 +16,7 @@ int bb_manage_chunk(struct bb_session_request *bbsr, char *buf, size_t len) {
         if (len == 0 && bbsr->close) {
         	if (bb_wq_push_close(bbs->connection)) goto end;
 	}
+	return 0;
 end:
 	bb_session_close(bbs);
 	return -1;

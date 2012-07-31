@@ -19,6 +19,23 @@ routing:
 
 #define on_cmd(x) if (!strncmp(command, x, command_len))
 
+#define foreach_session_in_group	if (route[0] == '@') {\
+					in_group = 0;\
+					struct bb_group *bbg = bb_ght_get(bbs->vhost, route, route_len);\
+                                        if (!bbg) goto next;\
+                                        struct bb_group_session *bbgs = bbg->sessions;\
+                                        while(bbgs) {\
+                                                if (bbgs->session != bbs) {
+#define	end_foreach				}\
+						else {\
+							in_group = 1;\
+						}\
+                                                bbgs = bbgs->next;\
+                                        }\
+					if (!in_group) goto next;\
+					}
+
+
 extern http_parser_settings bb_http_response_parser_settings;
 extern http_parser_settings bb_http_response_parser_settings2;
 
@@ -155,6 +172,8 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 				command_len-=(route_len+1);
 			}
 
+			int in_group = 1;
+
 			on_cmd("body") {
                                 if (!bbs->connection->spdy) {
                                         if (bb_wq_push_copy(bbs->connection,zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]), 1)) {
@@ -177,20 +196,12 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 
 			on_cmd("websocket") {
 				if (route) {
-					struct bb_group *bbg = bb_ght_get(bbs->vhost, route, route_len);
-                                        if (!bbg) goto next;
-                                        struct bb_group_session *bbgs = bbg->sessions;
-                                        while(bbgs) {
-						// route to myself only at the end
-						if (bbgs->session != bbs) {
-							if (bbgs->session->requests_tail) {
-                                				if (bb_websocket_reply(bbgs->session->requests_tail, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3])))
-                                        				bb_connection_close(bbgs->session->connection);
-							}
+					foreach_session_in_group
+						if (bbgs->session->requests_tail) {
+                                			if (bb_websocket_reply(bbgs->session->requests_tail, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3])))
+                                        			bb_connection_close(bbgs->session->connection);
 						}
-                                                bbgs = bbgs->next;
-                                        }
-
+                                        end_foreach
 				}
                                 if (bb_websocket_reply(bbsr, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3])))
                                        	bb_connection_close(bbs->connection);
@@ -198,6 +209,14 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
                         }
 
 			on_cmd("chunk") {
+				if (route) {
+					foreach_session_in_group
+						if (bbgs->session->requests_tail) {
+                                			if (bb_manage_chunk(bbgs->session->requests_tail, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3])))
+                                        			bb_connection_close(bbs->connection);
+						}
+					end_foreach
+                                }
                                 if (bb_manage_chunk(bbsr, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3])))
                                         bb_connection_close(bbs->connection);
                                 goto next;
