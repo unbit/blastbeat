@@ -438,9 +438,6 @@ static void bb_acceptor_bind(struct bb_acceptor *acceptor) {
 	ev_io_init(&acceptor->acceptor, accept_callback, server, EV_READ);	
 	ev_io_start(blastbeat.loop, &acceptor->acceptor);
 
-	ev_timer_init(&blastbeat.pinger, pinger_cb, blastbeat.ping_freq, blastbeat.ping_freq);
-        ev_timer_start(blastbeat.loop, &blastbeat.pinger);
-
 }
 
 /*
@@ -631,8 +628,12 @@ int main(int argc, char *argv[]) {
 	ev_io_init(&blastbeat.event_zmq, bb_zmq_receiver, blastbeat.zmq_fd, EV_READ);
 	ev_io_start(blastbeat.loop, &blastbeat.event_zmq);
 
-	fprintf(stdout,"\n*** BlastBeat is ready ***\n");
+	// the first ping is after 1 second
+	ev_timer_init(&blastbeat.pinger, pinger_cb, 1.0, blastbeat.ping_freq);
+        ev_timer_start(blastbeat.loop, &blastbeat.pinger);
 
+	fprintf(stdout,"\n*** BlastBeat is ready ***\n");
+	
 	ev_loop(blastbeat.loop, 0);
 	return 0;
 
