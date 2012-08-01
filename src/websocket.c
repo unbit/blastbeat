@@ -144,8 +144,9 @@ parser:
                        bbsr->websocket_message_queue = NULL;
                        bbsr->websocket_message_queue_len = 0;
                        if (old_queue_len - (bbsr->websocket_message_queue_pos + bbsr->websocket_message_size) > 0) {
-                               bbsr->websocket_message_queue = malloc(old_queue_len - (bbsr->websocket_message_queue_pos + bbsr->websocket_message_size));
-                               bbsr->websocket_message_queue_len = old_queue_len - (bbsr->websocket_message_queue_pos + bbsr->websocket_message_size);
+                       		bbsr->websocket_message_queue = malloc(old_queue_len - (bbsr->websocket_message_queue_pos + bbsr->websocket_message_size));
+				bbsr->websocket_message_queue_len = old_queue_len - (bbsr->websocket_message_queue_pos + bbsr->websocket_message_size);
+				memcpy(bbsr->websocket_message_queue, old_queue + bbsr->websocket_message_queue_pos + bbsr->websocket_message_size, bbsr->websocket_message_queue_len);
                        }
                        free(old_queue);
                        return 0;       
