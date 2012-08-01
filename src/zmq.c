@@ -19,7 +19,7 @@ routing:
 
 #define on_cmd(x) if (!strncmp(command, x, command_len))
 
-#define foreach_session_in_group	if (route[0] == '@') {\
+#define foreach_session_in_group	if (route[0] != '@') {\
 					in_group = 0;\
 					struct bb_group *bbg = bb_ght_get(bbs->vhost, route, route_len);\
                                         if (!bbg) goto next;\
