@@ -1,0 +1,71 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="">
+<meta name="author" content="unbit">
+<link href="http://unbit.github.com/bootstrap/css/bootstrap.css" rel="stylesheet">
+<style>
+body {
+padding-top: 60px; /* 60px to make the container go all the way to the bottom of the topbar */
+}
+</style>
+<link href="http://unbit.github.com/bootstrap/css/bootstrap-responsive.css" rel="stylesheet">
+
+<script src="http://unbit.github.com/jquery-1.7.2.min.js" type="text/javascript"></script>
+
+<script type="text/javascript">
+        $(document).ready(function(){
+
+                var ws = new WebSocket('ws://localhost:9090/');
+
+                ws.onopen = function() {
+                        var is_drawing = false;
+
+                        var canvas = $('#whiteboard')[0].getContext('2d');
+
+                        $('#coords').html('x:0 y:0');
+
+                        $('#whiteboard').mousedown(function(e) {
+                                is_drawing = true;
+                        });
+
+                        $(document).mouseup(function(e) {
+                                is_drawing = false;
+                        });
+
+                        $('#whiteboard').mousemove(function(e) {
+                                if (!is_drawing) return;
+                                var x = e.pageX - this.offsetLeft;
+                                var y = e.pageY - this.offsetTop;
+                                $('#coords').html('x:' + x + ' y:' + y);
+                                ws.send(x+','+y);
+                        });
+        
+                        ws.onmessage = function(e) {
+                                coords = e.data.split(',');
+                                canvas.beginPath();
+                                canvas.arc(coords[0], coords[1], 10, 0, Math.PI*2, true); 
+                                canvas.stroke();
+                        };
+
+                        ws.onclose = function() {
+                                alert("connection lost !!!");
+                        }
+
+                        ws.onerror = function(e) {
+                                alert('ERROR: ' + e);
+                        }
+                };
+
+        });
+</script>
+</head>
+
+<body>
+<div class="navbar navbar-fixed-top">
+<div class="navbar-inner">
+<div class="container">
+<a class="brand" href="#">Shared Canvas</a>
+</div>
+</div>
