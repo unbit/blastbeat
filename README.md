@@ -455,4 +455,4 @@ http://lists.unbit.it/cgi-bin/mailman/listinfo/blastbeat
 
 ## IRC (freenode)
 
-#uwsgi
+ \#uwsgi
