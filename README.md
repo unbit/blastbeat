@@ -441,6 +441,8 @@ end
 
 * Some form of timeout management
 
+* Multiple zmq router support
+
 ## Support
 
 you can ask for help in the official mailing-list
@@ -450,3 +452,7 @@ http://lists.unbit.it/cgi-bin/mailman/listinfo/blastbeat
 ## Twitter
 
 @unbit
+
+## IRC (freenode)
+
+#uwsgi
