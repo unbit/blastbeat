@@ -35,17 +35,22 @@ header. SPDY sessions do not support chunked messages)
 
 * msg (internal, route a message to a session or a group)
 
+* join (join a BlastBeat group, it is required for sending messages to peers in the same group)
+
+* leave (leave a BlastBeat group)
+
 Commands in development/study/analysis
 
 * move (move the session to another node)
 
 * push (SPDY push service)
 
-* join (join a BlastBeat group, it is required for sending messages to peers in the same group)
-
-* leave (leave a BlastBeat group)
+* timeout (auto-close session after inactivity)
 
 * goaway (SPDY-friendly connection interruption)
+
+* auth (stronger authentication for dealers)
+
 
 feel free to propose your ideas...
 
