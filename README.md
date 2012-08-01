@@ -14,42 +14,42 @@ the same backend node.
 
 'message type' identify the kind of the message. This is the list of currently defined message types:
 
-* headers (response contains HTTP headers in raw format, Example: "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n")
+* **headers** (response contains HTTP headers in raw format, Example: "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n")
 
-* uwsgi (request/response contains HTTP headers encoded in uwsgi format)
+* **uwsgi** (request/response contains HTTP headers encoded in uwsgi format)
 
-* body (request/response contains raw body)
+* **body** (request/response contains raw body)
 
-* chunk (response will encode the message in a HTTP chunk, REMEMBER: set the correct Transfer-Encoding in your
+* **chunk** (response will encode the message in a HTTP chunk, REMEMBER: set the correct Transfer-Encoding in your
 header. SPDY sessions do not support chunked messages) 
 
-* end (request/response close the connection of HTTP requests and the stream of a SPDY one, REMEMBER: BlastBeat supports HTTP persistent connections !!!)
+* **end** (request/response close the connection of HTTP requests and the stream of a SPDY one, REMEMBER: BlastBeat supports HTTP persistent connections !!!)
 
-* websocket (request/response contains a websocket message)
+* **websocket** (request/response contains a websocket message)
 
-* ping (request, check for a backend availability)
+* **ping** (request, check for a backend availability)
 
-* pong (response, confirm a backend presence)
+* **pong** (response, confirm a backend presence)
 
-* retry (response, ask BlastBeat to make the same request to another node REMEMBER: there is a maximum of 'retry' messages per-session)
+* **retry** (response, ask BlastBeat to make the same request to another node REMEMBER: there is a maximum of 'retry' messages per-session)
 
-* msg (internal, route a message to a session or a group)
+* **msg** (internal, route a message to a session or a group)
 
-* join (join a BlastBeat group, it is required for sending messages to peers in the same group)
+* **join** (join a BlastBeat group, it is required for sending messages to peers in the same group)
 
-* leave (leave a BlastBeat group)
+* **leave** (leave a BlastBeat group)
 
 Commands in development/study/analysis
 
-* move (move the session to another node)
+* **move** (move the session to another node)
 
-* push (SPDY push service)
+* **push** (SPDY push service)
 
-* timeout (auto-close session after inactivity)
+* **timeout** (auto-close session after inactivity)
 
-* goaway (SPDY-friendly connection interruption)
+* **goaway** (SPDY-friendly connection interruption)
 
-* auth (stronger authentication for dealers)
+* **auth** (stronger authentication for dealers)
 
 
 feel free to propose your ideas...
