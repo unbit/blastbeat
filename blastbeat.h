@@ -43,6 +43,7 @@
 
 #define BLASTBEAT_TYPE_WEBSOCKET        1
 #define BLASTBEAT_TYPE_SPDY		2
+#define BLASTBEAT_TYPE_SPDY_PUSH	3
 
 #define BLASTBEAT_DEALER_OFF		0
 #define BLASTBEAT_DEALER_AVAILABLE	1
@@ -151,6 +152,7 @@ struct bb_session_request {
 	char *uwsgi_buf;
 	size_t uwsgi_len;
 	off_t uwsgi_pos;
+	uint32_t spdy_even_stream_id;
         char *websocket_message_queue;
         uint64_t websocket_message_queue_len;
         uint64_t websocket_message_queue_pos;
@@ -159,6 +161,7 @@ struct bb_session_request {
         //char websocket_message_mask[4];
         uint64_t websocket_message_size;
         struct bb_http_header headers[MAX_HEADERS];
+        struct bb_session_request *prev;
         struct bb_session_request *next;
 };
 
@@ -204,6 +207,8 @@ struct bb_connection {
 	off_t spdy_header_pos;
 	char *spdy_body_buf;
 	off_t spdy_body_pos;
+
+	uint32_t spdy_even_stream_id;
 
 	// write queue
 	struct bb_writer writer;
@@ -371,6 +376,7 @@ int bb_websocket_reply(struct bb_session_request *, char *, size_t);
 int bb_manage_spdy(struct bb_connection *, char *, ssize_t);
 int bb_spdy_send_body(struct bb_session_request *, char *, size_t);
 int bb_spdy_send_headers(struct bb_session_request *);
+int bb_spdy_push_headers(struct bb_session_request *);
 
 int bb_join_group(struct bb_session *, char *, size_t);
 int bb_session_leave_group(struct bb_session *, struct bb_group *);

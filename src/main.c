@@ -25,6 +25,7 @@ struct bb_session_request *bb_new_request(struct bb_session *bbs) {
 	}
 	else {
 		bbs->requests_tail->next = bbsr;
+		bbsr->prev = bbs->requests_tail;
 		bbs->requests_tail = bbsr;
 	}
 

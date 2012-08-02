@@ -253,6 +253,26 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
                                 goto next;
                         }
 
+			on_cmd("push") {
+				if (!bbs->connection->spdy) goto next;
+				// in SPDY mode we parse headers as a normal HTTP request (saving data)
+				struct bb_session_request *new_request = bb_new_request(bbs);
+				if (!new_request) goto next;
+				bbsr = new_request;
+				bbsr->type = BLASTBEAT_TYPE_SPDY_PUSH;
+                                http_parser_init(&bbsr->parser, HTTP_RESPONSE);
+                                bbsr->parser.data = bbsr;
+                                int res = http_parser_execute(&bbsr->parser, &bb_http_response_parser_settings2, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]));
+                                // invalid headers ?
+                                if (res != zmq_msg_size(&msg[3])) {
+                                	bb_session_close(bbs);
+                                        goto next;
+                                }
+                                if (bb_spdy_push_headers(bbsr))
+                                	bb_session_close(bbs);
+				goto next;
+			}
+
 			on_cmd("retry") {
                                 if (bbs->hops >= blastbeat.max_hops) {
                                         bb_connection_close(bbs->connection);
@@ -311,8 +331,33 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
                                 	}
 				}
 				else {
-                                        if (bb_spdy_send_body(bbsr, "", 0))
+                                        if (bb_spdy_send_body(bbsr, "", 0)) {
                                                 bb_session_close(bbs);
+						goto next;
+					}	
+					// clear the push request now
+					if (bbsr->type == BLASTBEAT_TYPE_SPDY_PUSH) {
+						// free parsed headers	
+						for(i=1;i<=bbsr->header_pos;i++) {
+                                			free(bbsr->headers[i].key);
+                                			free(bbsr->headers[i].value);
+                        			}
+                        			if (bbsr->uwsgi_buf) {
+                                			free(bbsr->uwsgi_buf);
+                        			}
+                        			if (bbsr->websocket_message_queue) {
+                                			free(bbsr->websocket_message_queue);
+                        			}
+						// this never happens (for now)... just be sure...
+						if (bbs->requests_tail == bbs->requests_head) {
+							bbs->requests_head = NULL;
+						}
+						bbs->requests_tail = bbsr->prev;
+						if (bbs->requests_tail) {
+							bbs->requests_tail->next = NULL;
+						}
+						free(bbsr);
+					}
 				}
                                 goto next;
                         }
