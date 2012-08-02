@@ -235,7 +235,7 @@ Whenever you send a 'push' message, a new stream is created and will be the acti
 
 A 'push' message is like the 'headers' one. Just remember to set the Url: header, reporting the full url of the resource.
 
-```
+```python
 
 # send the headers for the main request
 zmq.send(sid, zmq.SNDMORE)
