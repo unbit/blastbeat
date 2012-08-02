@@ -39,11 +39,13 @@ header. SPDY sessions do not support chunked messages)
 
 * **leave** (leave a BlastBeat group)
 
+* **push** (SPDY push service, works like 'headers', see below)
+
 Commands in development/study/analysis
 
 * **move** (move the session to another node)
 
-* **push** (SPDY push service)
+
 
 * **timeout** (auto-close session after inactivity)
 
@@ -224,6 +226,48 @@ If the client supports SPDY 2 protocol, it will be preferred over HTTPS.
 Each stream is mapped to a different sid.
 
 To end a stream just send a 'end' message or an empty 'body' message.
+
+## SPDY push
+
+You can push resources with the 'push' message type.
+
+Whenever you send a 'push' message, a new stream is created and will be the active one til a 'end' command is issued.
+
+A 'push' message is like the 'headers' one. Just remember to set the Url: header, reporting the full url of the resource.
+
+```
+
+# send the headers for the main request
+zmq.send(sid, zmq.SNDMORE)
+zmq.send('headers', zmq.SNDMORE)
+zmq.send("HTTP/1.1 200 Ok\r\nContent-Type: text/html\r\n\r\n")
+
+# push a new resource
+zmq.send(sid, zmq.SNDMORE)
+zmq.send('push', zmq.SNDMORE)
+zmq.send("HTTP/1.1 200 Ok\r\nContent-Type: text/javascript\r\nUrl: https://foobar.it/test1.js\r\n\r\n")
+
+# push its body
+zmq.send(sid, zmq.SNDMORE)
+zmq.send('body', zmq.SNDMORE)
+zmq.send("alert('hello');")
+
+# end the stream
+zmq.send(sid, zmq.SNDMORE)
+zmq.send('end', zmq.SNDMORE)
+zmq.send('')
+
+# we are now (again) in the main request
+# send its body
+zmq.send(sid, zmq.SNDMORE)
+zmq.send('body', zmq.SNDMORE)
+zmq.send('<script type="text/javascript" src="/test1.js"></script>')
+
+# ...and close the main stream
+zmq.send(sid, zmq.SNDMORE)
+zmq.send('end', zmq.SNDMORE)
+zmq.send('')
+```
 
 ## using the sid (for concurrency)
 
