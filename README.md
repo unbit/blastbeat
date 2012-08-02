@@ -45,13 +45,13 @@ Commands in development/study/analysis
 
 * **move** (move the session to another node)
 
-
-
 * **timeout** (auto-close session after inactivity)
 
 * **goaway** (SPDY-friendly connection interruption)
 
 * **auth** (stronger authentication for dealers)
+
+* **socket.io** (automagically manage socket.io requests)
 
 
 feel free to propose your ideas...
