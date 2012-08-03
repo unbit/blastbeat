@@ -112,6 +112,13 @@ static int bb_session_headers_complete(http_parser *parser) {
         	}
         }
 
+	// check for socket.io
+	if (!bb_startswith(bbsr->headers[0].key, bbsr->headers[0].keylen, "/socket.io/1/", 13)) {
+		if (bb_manage_socketio(bbsr)) {
+			return -1;
+		}
+	}
+
         if (parser->upgrade) {
                 struct bb_http_header *bbhh = bb_http_req_header(bbsr, "Upgrade", 7);
                 if (bbhh) {
@@ -122,6 +129,7 @@ static int bb_session_headers_complete(http_parser *parser) {
                         }
                 }
         }
+
 
         if (!http_should_keep_alive(parser)) {
                 //printf("NO KEEP ALIVE !!!\n");

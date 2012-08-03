@@ -45,7 +45,8 @@ static void bb_session_clear(struct bb_session *bbs) {
 	struct bb_connection *bbc = bbs->connection;
 
 	// remove the session from the hash table
-        bb_sht_remove(bbs);
+	if (!bbs->persistent)
+        	bb_sht_remove(bbs);
 		// remove requests
                 struct bb_session_request *bbsr = bbs->requests_head;
                 while(bbsr) {
@@ -65,22 +66,24 @@ static void bb_session_clear(struct bb_session *bbs) {
                         free(tmp_bbsr);
                 }
 		// remove groups
-		struct bb_session_group *bbsg = bbs->groups;
-		while(bbsg) {
-			struct bb_session_group *current_bbsg = bbsg;
-			bbsg = bbsg->next;
-			bb_session_leave_group(bbs, current_bbsg->group);
-		}
+		if (!bbs->persistent) {
+			struct bb_session_group *bbsg = bbs->groups;
+			while(bbsg) {
+				struct bb_session_group *current_bbsg = bbsg;
+				bbsg = bbsg->next;
+				bb_session_leave_group(bbs, current_bbsg->group);
+			}
 
-                // if linked to a dealer, send a 'end' message
-                if (bbs->dealer) {
-			if (bbs->dealer > 0) {
-				bbs->dealer->load--;
+                	// if linked to a dealer, send a 'end' message
+                	if (bbs->dealer) {
+				if (bbs->dealer > 0) {
+					bbs->dealer->load--;
+				}
+				else {
+					fprintf(stderr,"BUG IN DEALER LOAD MANAGEMENT\n");
+				}
+                        	bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "end", 3, "", 0);
 			}
-			else {
-				fprintf(stderr,"BUG IN DEALER LOAD MANAGEMENT\n");
-			}
-                        bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "end", 3, "", 0);
                 }
 
 }
@@ -88,6 +91,9 @@ static void bb_session_clear(struct bb_session *bbs) {
 void bb_session_close(struct bb_session *bbs) {
 	struct bb_connection *bbc = bbs->connection;
 	bb_session_clear(bbs);	
+
+	// persistent sessions lose the connection object
+	// it will be mapped again on the next request
 
 	// first one ?
 	if (bbs == bbc->sessions_head) {
@@ -106,7 +112,8 @@ void bb_session_close(struct bb_session *bbs) {
 		bbs->conn_next->prev = bbs->conn_prev;
 	}
 
-	free(bbs);
+	if (!bbs->persistent)
+		free(bbs);
 }
 
 void bb_connection_close(struct bb_connection *bbc) {
@@ -184,6 +191,11 @@ int bb_stricmp(char *str1, size_t str1len, char *str2, size_t str2len) {
 int bb_strcmp(char *str1, size_t str1len, char *str2, size_t str2len) {
 	if (str1len != str2len) return -1;
 	return memcmp(str1, str2, str1len);
+}
+
+int bb_startswith(char *str1, size_t str1len, char *str2, size_t str2len) {
+	if (str1len < str2len) return -1;
+	return memcmp(str1, str2, str2len);
 }
 
 struct bb_http_header *bb_http_req_header(struct bb_session_request *bbsr, char *key, size_t keylen) {

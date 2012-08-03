@@ -232,6 +232,9 @@ struct bb_session {
 	// contains the virtualhost mapped to the session
 	struct bb_virtualhost *vhost;
 
+	// persistent sessions can be re-called (useful for socket.io in xhr-polling)
+	int persistent;
+
 	// if set, generate a new session_request structure
         int new_request;
         struct bb_session_request *requests_head;
@@ -368,6 +371,7 @@ void bb_socket_ssl(struct bb_acceptor *);
 
 int bb_stricmp(char *, size_t, char *, size_t);
 int bb_strcmp(char *, size_t, char *, size_t);
+int bb_startswith(char *, size_t, char *, size_t);
 
 int bb_manage_websocket(struct bb_session_request *, char *, ssize_t);
 int bb_send_websocket_handshake(struct bb_session_request *);
@@ -381,3 +385,5 @@ int bb_spdy_push_headers(struct bb_session_request *);
 int bb_join_group(struct bb_session *, char *, size_t);
 int bb_session_leave_group(struct bb_session *, struct bb_group *);
 struct bb_group *bb_ght_get(struct bb_virtualhost *, char *, size_t);
+
+int bb_manage_socketio(struct bb_session_request *);
