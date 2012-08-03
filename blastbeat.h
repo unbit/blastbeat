@@ -28,6 +28,7 @@
 #include <zlib.h>
 #include <uuid/uuid.h>
 #include <ctype.h>
+#include <math.h>
 
 #define MAX_HEADERS 100
 
@@ -145,6 +146,15 @@ struct bb_session_request {
         int last_was_value;
         int close;
         int type;
+	int do_not_free;
+	// do not generate a uwsgi message
+	int no_uwsgi;
+	// is it a socket.io POST ?
+	int sio_post;
+	char *sio_post_buf;
+	size_t sio_post_buf_size;
+	// ptr to the persistent socket.io session
+        struct bb_session *sio_bbs;
 	char http_major;
 	char http_minor;
         uint64_t content_length;
@@ -234,6 +244,14 @@ struct bb_session {
 
 	// persistent sessions can be re-called (useful for socket.io in xhr-polling)
 	int persistent;
+	// quiet death is for current session recovering a new one
+        int quiet_death;
+
+	// mark socket.io connection status
+	int sio_connected;
+	// true if a socket.io poller is connected
+	int sio_poller;
+	ev_timer sio_timer;
 
 	// if set, generate a new session_request structure
         int new_request;
@@ -308,6 +326,8 @@ struct blastbeat_server {
 	char *uid;
 	char *gid;
 
+	uint64_t active_sessions;
+
 	void *router;
 	int zmq_fd;
 	struct ev_loop *loop;
@@ -326,6 +346,7 @@ struct blastbeat_server {
 
 	ev_io event_zmq;
 	ev_timer pinger;
+	ev_timer stats;
 
 };
 

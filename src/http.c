@@ -82,7 +82,19 @@ static int header_value_cb(http_parser *parser, const char *buf, size_t len) {
 static int body_cb(http_parser *parser, const char *buf, size_t len) {
         struct bb_session_request *bbsr = (struct bb_session_request *) parser->data;
         // send a message as "body"
-	bb_zmq_send_msg(bbsr->bbs->dealer->identity, bbsr->bbs->dealer->len, (char *) &bbsr->bbs->uuid_part1, BB_UUID_LEN, "body", 4, (char *) buf, len);
+	if (bbsr->sio_post) {
+		char *new_buf = realloc(bbsr->sio_post_buf, bbsr->sio_post_buf_size+len);
+		if (!new_buf) {
+			bb_error("realloc()");
+			return -1;
+		}
+		bbsr->sio_post_buf = new_buf;
+		memcpy(bbsr->sio_post_buf+bbsr->sio_post_buf_size, buf, len);
+		bbsr->sio_post_buf_size+=len;
+	}
+	else {
+		bb_zmq_send_msg(bbsr->bbs->dealer->identity, bbsr->bbs->dealer->len, (char *) &bbsr->bbs->uuid_part1, BB_UUID_LEN, "body", 4, (char *) buf, len);
+	}
         return 0;
 }
 
@@ -112,6 +124,10 @@ static int bb_session_headers_complete(http_parser *parser) {
         	}
         }
 
+	if (parser->content_length != ULLONG_MAX) {
+                bbsr->content_length = parser->content_length;
+        }
+
 	// check for socket.io
 	if (!bb_startswith(bbsr->headers[0].key, bbsr->headers[0].keylen, "/socket.io/1/", 13)) {
 		if (bb_manage_socketio(bbsr)) {
@@ -137,6 +153,7 @@ static int bb_session_headers_complete(http_parser *parser) {
         }
 
 msg:
+	if (bbsr->no_uwsgi) return 0;
         // now encode headers in a uwsgi packet and send it as "headers" message
 	if (bb_uwsgi(bbsr)) {
 		return -1;
@@ -145,11 +162,107 @@ msg:
         return 0;
 }
 
+static char *find_third_colon(char *buf, size_t len) {
+	size_t i;
+        int count = 0;
+        for(i=0;i<len;i++) {
+                if (buf[i] == ':') {
+                        count++;
+			if (count == 3) {
+				if ((i+1) > (len-1)) return NULL;
+				return buf+i+1;
+			}
+		}
+        }
+	return NULL;
+} 
+
+static size_t str2num(char *str, int len) {
+
+        int i;
+        size_t num = 0;
+
+        size_t delta = pow(10, len);
+
+        for (i = 0; i < len; i++) {
+                delta = delta / 10;
+                num += delta * (str[i] - 48);
+        }
+
+        return num;
+}
+
+
+int bb_socketio_message(struct bb_session *bbs, char *buf, size_t len) {
+	char *sio_body = find_third_colon(buf, len);
+        if (!sio_body) return -1;
+        size_t sio_len = len - (sio_body-buf);
+        // forward socket.io message to the right session
+                	fprintf(stderr,"SOCKET.IO MESSAGE TYPE: %c\n", buf[0]);
+        switch(buf[0]) {
+        	case '3':
+                	bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "socket.io/msg", 13, sio_body, sio_len);
+			break;
+                case '4':
+                	bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "socket.io/json", 14, sio_body, sio_len);
+                	break;
+                case '5':
+                	bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "socket.io/event", 15, sio_body, sio_len);
+                        break;
+		default:
+                	fprintf(stderr,"SOCKET.IO MESSAGE TYPE: %c\n", buf[0]);
+			return -1;
+	}
+	return 0;
+}
+
 static int bb_session_request_complete(http_parser *parser) {
         if (parser->upgrade) return 0;
+	struct bb_session_request *bbsr = (struct bb_session_request *) parser->data;
+	if (bbsr->sio_post) {
+		// minimal = X:::
+		if (bbsr->sio_post_buf_size < 4) return -1;
+		// multipart message ?
+		fprintf(stderr,"%01x %01x %01x %01x %x\n", bbsr->sio_post_buf[0], bbsr->sio_post_buf[1],bbsr->sio_post_buf[2],bbsr->sio_post_buf[3], bbsr->sio_post_buf[4]);
+		if (bbsr->sio_post_buf[0] == '\xef' && bbsr->sio_post_buf[1] == '\xbf' && bbsr->sio_post_buf[2] == '\xbd') {
+			fprintf(stderr,"MULTIPART MESSAGE\n");
+			char *ptr = bbsr->sio_post_buf;
+			char *watermark = ptr+bbsr->sio_post_buf_size;
+			while(ptr < watermark) {
+				if (*ptr++ != '\xef') return -1;	
+				if (ptr+1 > watermark) return -1;
+				if (*ptr++ != '\xbf') return -1;	
+				if (ptr+1 > watermark) return -1;
+				if (*ptr++ != '\xbd') return -1;	
+				if (ptr+1 > watermark) return -1;
+				char *base_of_num = ptr;
+				size_t end_of_num = 0;
+				while(*ptr >= '0' && *ptr<='9') {
+					if (ptr+1 > watermark) return -1;
+					end_of_num++;
+					ptr++;
+				}
+				size_t part_len = str2num(base_of_num, end_of_num);
+				fprintf(stderr,"msg part size = %d\n", part_len);
+				if (*ptr++ != '\xef') return -1;	
+				if (ptr+1 > watermark) return -1;
+				if (*ptr++ != '\xbf') return -1;	
+				if (ptr+1 > watermark) return -1;
+				if (*ptr++ != '\xbd') return -1;	
+				if (ptr+1 > watermark) return -1;
+				if (ptr+part_len > watermark) return -1;
+				if (bb_socketio_message(bbsr->sio_bbs, ptr, part_len))
+					return -1;
+				ptr+=part_len;
+			}
+		}
+		else {
+			if (bb_socketio_message(bbsr->sio_bbs, bbsr->sio_post_buf, bbsr->sio_post_buf_size))
+				return -1;
+		}
+	} 
         if (http_should_keep_alive(parser)) {
                 // prepare for a new request
-                struct bb_session_request *bbsr = (struct bb_session_request *) parser->data;
                 bbsr->bbs->new_request = 1;
         }
         return 0;

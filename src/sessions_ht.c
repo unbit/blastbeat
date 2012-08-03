@@ -108,4 +108,6 @@ void bb_sht_remove(struct bb_session *bbs) {
 	if (bbs->next) {
 		bbs->next->prev = bbs->prev;
 	}
+
+	blastbeat.active_sessions--;
 }

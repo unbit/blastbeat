@@ -50,6 +50,10 @@ static void bb_session_clear(struct bb_session *bbs) {
 		// remove requests
                 struct bb_session_request *bbsr = bbs->requests_head;
                 while(bbsr) {
+			if (bbsr->do_not_free) {
+				bbsr = bbsr->next;
+				continue;
+			}
                         // in spdy mode, the first header is empty
                         for(i=bbc->spdy;i<=bbsr->header_pos;i++) {
                                 free(bbsr->headers[i].key);
@@ -61,6 +65,9 @@ static void bb_session_clear(struct bb_session *bbs) {
                         if (bbsr->websocket_message_queue) {
                                 free(bbsr->websocket_message_queue);
                         }
+			if (bbsr->sio_post_buf) {
+				free(bbsr->sio_post_buf);
+			}
                         struct bb_session_request *tmp_bbsr = bbsr;
                         bbsr = bbsr->next;
                         free(tmp_bbsr);
@@ -75,13 +82,14 @@ static void bb_session_clear(struct bb_session *bbs) {
 			}
 
                 	// if linked to a dealer, send a 'end' message
-                	if (bbs->dealer) {
+                	if (bbs->dealer && !bbs->quiet_death) {
 				if (bbs->dealer > 0) {
 					bbs->dealer->load--;
 				}
 				else {
 					fprintf(stderr,"BUG IN DEALER LOAD MANAGEMENT\n");
 				}
+				fprintf(stderr,"END\n");
                         	bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "end", 3, "", 0);
 			}
                 }
@@ -140,7 +148,8 @@ void bb_connection_close(struct bb_connection *bbc) {
 		bb_session_clear(bbs);
 		struct bb_session *old_bbs = bbs;
 		bbs = bbs->next;
-		free(old_bbs);
+		if (!old_bbs->persistent)
+			free(old_bbs);
 	}
 
 	// remove the writer queue
@@ -321,6 +330,7 @@ struct bb_session *bb_session_new(struct bb_connection *bbc) {
 		bbs->conn_prev->next = bbs;
 	}
 
+	blastbeat.active_sessions++;
 	return bbs;
 }
 
@@ -361,6 +371,10 @@ static void accept_callback(struct ev_loop *loop, struct ev_io *w, int revents) 
 	bbc->writer.connection = bbc;
 
 	ev_io_start(loop, &bbc->reader.reader);
+}
+
+static void stats_cb(struct ev_loop *loop, struct ev_timer *w, int revents) {
+	fprintf(stderr,"active sessions: %llu\n", (unsigned long long) blastbeat.active_sessions);
 }
 
 static void pinger_cb(struct ev_loop *loop, struct ev_timer *w, int revents) {
@@ -644,6 +658,10 @@ int main(int argc, char *argv[]) {
 	// the first ping is after 1 second
 	ev_timer_init(&blastbeat.pinger, pinger_cb, 1.0, blastbeat.ping_freq);
         ev_timer_start(blastbeat.loop, &blastbeat.pinger);
+
+	// the first ping is after 1 second
+	ev_timer_init(&blastbeat.stats, stats_cb, 60.0, 60.0);
+        ev_timer_start(blastbeat.loop, &blastbeat.stats);
 
 	fprintf(stdout,"\n*** BlastBeat is ready ***\n");
 	
