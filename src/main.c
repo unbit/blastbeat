@@ -44,6 +44,10 @@ static void bb_session_clear(struct bb_session *bbs) {
 	int i;
 	struct bb_connection *bbc = bbs->connection;
 
+	if (bbs->timer.session) {
+		ev_timer_stop(blastbeat.loop, &bbs->timer.timer);
+	}
+
 	// remove the session from the hash table
 	if (!bbs->persistent)
         	bb_sht_remove(bbs);
@@ -307,6 +311,34 @@ clear:
 	bb_connection_close(bbc);
 }
 
+static void session_timer_cb(struct ev_loop *loop, struct ev_timer *w, int revents) {
+	struct bb_session_timer *bbst = (struct bb_session_timer *) w;
+	struct bb_session *bbs = bbst->session;
+
+	if (bbs->sio_poller) {
+		fprintf(stderr,"NO MESSAGE SENT\n");
+		struct bb_session_request *bbsr = bbs->requests_tail;
+		if (!bbsr) goto error;
+		bbsr->http_major = '0' + bbsr->parser.http_major;
+                bbsr->http_minor = '0' + bbsr->parser.http_minor;
+
+				fprintf(stderr,"connection = %p\n", bbs->connection);
+                                if (bb_wq_push(bbs->connection, "HTTP/", 5, 0)) goto error;
+                                if (bb_wq_push(bbs->connection, &bbsr->http_major, 1, 0)) goto error;
+                                if (bb_wq_push(bbs->connection, ".", 1, 0)) goto error;
+                                if (bb_wq_push(bbs->connection, &bbsr->http_minor, 1, 0)) goto error;
+		const char *connected = " 200 OK\r\nContent-Type: text/plain; charset=UTF-8\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Credentials: true\r\nAccess-Control-Allow-Methods: POST, GET, OPTIONS\r\nAccess-Control-Max-Age: 3600\r\nContent-Length: 0\r\n\r\n";
+                if (bb_wq_push(bbsr->bbs->connection, (char *)connected, strlen(connected), 0)) goto error;
+                if (bb_wq_push_close(bbsr->bbs->connection)) goto error;
+	}
+
+	return;
+error:
+	bb_connection_close(bbs->connection);
+}
+
+
+
 struct bb_session *bb_session_new(struct bb_connection *bbc) {
 	struct bb_session *bbs = malloc(sizeof(struct bb_session));
 	if (!bbs) {
@@ -329,6 +361,9 @@ struct bb_session *bb_session_new(struct bb_connection *bbc) {
 		bbc->sessions_tail = bbs;
 		bbs->conn_prev->next = bbs;
 	}
+
+	bbs->timer.session = bbs;
+	ev_timer_init(&bbs->timer.timer, session_timer_cb, 0.0, 0.0);
 
 	blastbeat.active_sessions++;
 	return bbs;

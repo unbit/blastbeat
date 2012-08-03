@@ -17,11 +17,6 @@ the socket.io/type message
 
 */
 
-static void sio_timer_cb(struct ev_loop *loop, struct ev_timer *w, int revents) {
-	fprintf(stderr, "60 seconds elapsed\n");
-}
-
-
 
 int bb_manage_socketio(struct bb_session_request *bbsr) {
 	char *url = bbsr->headers[0].key;
@@ -156,6 +151,9 @@ ready:
 				bbs->sio_poller = 1;
 				fprintf(stderr,"WAITING FOR MESSAGES\n");
 				bbsr->no_uwsgi = 1;
+				ev_timer_stop(blastbeat.loop, &bbs->timer.timer);
+				ev_timer_set(&bbs->timer.timer, 5.0, 0.0);
+				ev_timer_start(blastbeat.loop, &bbs->timer.timer);
 				return 0;
 			}
 			else {
@@ -174,8 +172,7 @@ ready:
 				bbs->sio_connected = 1;
 				// start the sio_timer
 				// the first ping is after 1 second
-        			ev_timer_init(&bbs->sio_timer, sio_timer_cb, 60.0, 60.0);
-        			ev_timer_start(blastbeat.loop, &bbs->sio_timer);
+        			//ev_timer_start(blastbeat.loop, &bbs->timer.timer);
 				// TODO here we generate a socket.io/uwsgi packet
 				return 0;
 			}
@@ -183,4 +180,49 @@ ready:
 	}	
 
 	return -1;
+}
+
+int bb_socketio_push(struct bb_session_request *bbsr, char type, char *buf, size_t len) {
+	
+	char *message = malloc(4 + len);
+	if (!message) {
+		bb_error("malloc()");
+		return -1;
+	}	
+
+	message[0] = type;
+	message[1] = ':';
+	message[2] = ':';
+	message[3] = ':';
+	
+	memcpy(message+4, buf, len);
+
+	//is a poller attached to the session ?
+	if (bbsr->bbs->sio_poller) {
+		return 0;		
+	}
+
+	struct bb_session *bbs = bbsr->bbs;
+	struct bb_socketio_message *last_bbsm=NULL,*bbsm = bbs->sio_queue;
+
+	while(bbsm) {
+		last_bbsm = bbsm;
+		bbsm = bbsm->next;
+	}
+
+	bbsm = malloc(sizeof(struct bb_socketio_message));
+	if (!bbsm) {
+		free(message);
+		bb_error("malloc()");
+		return -1;
+	}
+	memset(bbsm, 0, sizeof(struct bb_socketio_message));
+	if (last_bbsm) {
+		last_bbsm->next = bbsm;
+	}
+	else {
+		bbs->sio_queue = bbsm;
+	}
+
+	return 0;
 }

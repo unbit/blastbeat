@@ -362,6 +362,34 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
                                 goto next;
                         }
 
+			on_cmd("socket.io/event") {
+				if (bb_socketio_push(bbsr, '5', zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]))) {
+					// destroy the whole session
+					bbs->persistent = 0;		
+					bb_connection_close(bbs->connection);
+				}
+				goto next;
+			}
+
+			on_cmd("socket.io/msg") {
+                                if (bb_socketio_push(bbsr, '3', zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]))) {
+                                        // destroy the whole session
+                                        bbs->persistent = 0;
+                                        bb_connection_close(bbs->connection);
+                                }
+                                goto next;
+                        }
+
+			on_cmd("socket.io/json") {
+                                if (bb_socketio_push(bbsr, '4', zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]))) {
+                                        // destroy the whole session
+                                        bbs->persistent = 0;
+                                        bb_connection_close(bbs->connection);
+                                }
+                                goto next;
+                        }
+
+
 next:
                         zmq_msg_close(&msg[0]);
                         zmq_msg_close(&msg[1]);

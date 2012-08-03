@@ -228,6 +228,17 @@ struct bb_connection {
 		
 };
 
+struct bb_session_timer {
+	ev_timer timer;
+	struct bb_session *session;
+};
+
+struct bb_socketio_message {
+	char *buf;
+	size_t len;
+	struct bb_socketio_message *next;
+};
+
 // a blastbeat session (in HTTP it is mapped to a connection, in SPDY it is mapped to a stream)
 struct bb_session {
 	// this is the uuid key splitten in 2 64bit numbers
@@ -242,6 +253,8 @@ struct bb_session {
 	// contains the virtualhost mapped to the session
 	struct bb_virtualhost *vhost;
 
+	struct bb_session_timer timer;
+
 	// persistent sessions can be re-called (useful for socket.io in xhr-polling)
 	int persistent;
 	// quiet death is for current session recovering a new one
@@ -251,7 +264,8 @@ struct bb_session {
 	int sio_connected;
 	// true if a socket.io poller is connected
 	int sio_poller;
-	ev_timer sio_timer;
+	// the queue of unsent messages
+	struct bb_socketio_message *sio_queue;
 
 	// if set, generate a new session_request structure
         int new_request;
@@ -408,3 +422,4 @@ int bb_session_leave_group(struct bb_session *, struct bb_group *);
 struct bb_group *bb_ght_get(struct bb_virtualhost *, char *, size_t);
 
 int bb_manage_socketio(struct bb_session_request *);
+int bb_socketio_push(struct bb_session_request *, char, char *, size_t);
