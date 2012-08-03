@@ -500,3 +500,7 @@ http://lists.unbit.it/cgi-bin/mailman/listinfo/blastbeat
 ## IRC (freenode)
 
  \#uwsgi
+ 
+<iframe style="border: 0; margin: 0; padding: 0;"
+        src="https://www.gittip.com/unbit/widget.html" 
+        width="48pt" height="20pt"></iframe>
