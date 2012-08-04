@@ -1,7 +1,6 @@
 #include "../blastbeat.h"
 
-int bb_manage_chunk(struct bb_session_request *bbsr, char *buf, size_t len) {
-	struct bb_session *bbs = bbsr->bbs;
+int bb_manage_chunk(struct bb_session *bbs, char *buf, size_t len) {
 	char *chunk = malloc(MAX_CHUNK_STORAGE);
         if (!chunk) {
         	bb_error("unable to allocate memory for chunked response: malloc()");
@@ -13,7 +12,7 @@ int bb_manage_chunk(struct bb_session_request *bbsr, char *buf, size_t len) {
         if (bb_wq_push(bbs->connection, chunk, chunk_len, 1)) goto end;
         if (bb_wq_push_copy(bbs->connection, buf, len, 1)) goto end;
         if (bb_wq_push(bbs->connection, "\r\n", 2, 0)) goto end;
-        if (len == 0 && bbsr->close) {
+        if (len == 0 && bbs->response.close) {
         	if (bb_wq_push_close(bbs->connection)) goto end;
 	}
 	return 0;
@@ -23,16 +22,16 @@ end:
 }
 
 static int url_cb(http_parser *parser, const char *buf, size_t len) {
-        struct bb_session_request *bbsr = (struct bb_session_request *) parser->data;
-        if (!bbsr->headers[0].key) {
-                bbsr->headers[0].key = malloc(len);
-                memcpy(bbsr->headers[0].key, buf, len);
-                bbsr->headers[0].keylen = len;
+        struct bb_session *bbs = (struct bb_session *) parser->data;
+        if (!bbs->request.headers[0].key) {
+                bbs->request.headers[0].key = malloc(len);
+                memcpy(bbs->request.headers[0].key, buf, len);
+                bbs->request.headers[0].keylen = len;
         }
         else {
-                bbsr->headers[0].key = realloc(bbsr->headers[0].key, bbsr->headers[0].keylen + len);
-                memcpy(bbsr->headers[0].key + bbsr->headers[0].keylen + len, buf, len);
-                bbsr->headers[0].keylen += len;
+                bbs->request.headers[0].key = realloc(bbs->request.headers[0].key, bbs->request.headers[0].keylen + len);
+                memcpy(bbs->request.headers[0].key + bbs->request.headers[0].keylen + len, buf, len);
+                bbs->request.headers[0].keylen += len;
         }
         return 0;
 }
@@ -47,100 +46,97 @@ static int null_b_cb(http_parser *parser, const char *buf, size_t len) {
 }
 
 static int header_field_cb(http_parser *parser, const char *buf, size_t len) {
-        struct bb_session_request *bbsr = (struct bb_session_request *) parser->data;
-        if (bbsr->last_was_value) {
-                bbsr->header_pos++;
-                bbsr->headers[bbsr->header_pos].key = malloc(len);
-                memcpy(bbsr->headers[bbsr->header_pos].key, buf, len);
-                bbsr->headers[bbsr->header_pos].keylen = len;
+        struct bb_session *bbs = (struct bb_session *) parser->data;
+        if (bbs->request.last_was_value) {
+                bbs->request.header_pos++;
+                bbs->request.headers[bbs->request.header_pos].key = malloc(len);
+                memcpy(bbs->request.headers[bbs->request.header_pos].key, buf, len);
+                bbs->request.headers[bbs->request.header_pos].keylen = len;
         }
         else {
-                bbsr->headers[bbsr->header_pos].key = realloc(bbsr->headers[bbsr->header_pos].key, bbsr->headers[bbsr->header_pos].keylen + len);
-                memcpy(bbsr->headers[bbsr->header_pos].key + bbsr->headers[bbsr->header_pos].keylen, buf, len);
-                bbsr->headers[bbsr->header_pos].keylen += len;
+                bbs->request.headers[bbs->request.header_pos].key = realloc(bbs->request.headers[bbs->request.header_pos].key, bbs->request.headers[bbs->request.header_pos].keylen + len);
+                memcpy(bbs->request.headers[bbs->request.header_pos].key + bbs->request.headers[bbs->request.header_pos].keylen, buf, len);
+                bbs->request.headers[bbs->request.header_pos].keylen += len;
         }
-        bbsr->last_was_value = 0;
+        bbs->request.last_was_value = 0;
         return 0;
 }
 
 static int header_value_cb(http_parser *parser, const char *buf, size_t len) {
-        struct bb_session_request *bbsr = (struct bb_session_request *) parser->data;
-        if (!bbsr->last_was_value) {
-                bbsr->headers[bbsr->header_pos].value = malloc(len);
-                memcpy(bbsr->headers[bbsr->header_pos].value, buf, len);
-                bbsr->headers[bbsr->header_pos].vallen = len;
+        struct bb_session *bbs = (struct bb_session *) parser->data;
+        if (!bbs->request.last_was_value) {
+                bbs->request.headers[bbs->request.header_pos].value = malloc(len);
+                memcpy(bbs->request.headers[bbs->request.header_pos].value, buf, len);
+                bbs->request.headers[bbs->request.header_pos].vallen = len;
         }
         else {
-                bbsr->headers[bbsr->header_pos].value = realloc(bbsr->headers[bbsr->header_pos].value, bbsr->headers[bbsr->header_pos].vallen + len);
-                memcpy(bbsr->headers[bbsr->header_pos].value + bbsr->headers[bbsr->header_pos].vallen, buf, len);
-                bbsr->headers[bbsr->header_pos].vallen += len;
+                bbs->request.headers[bbs->request.header_pos].value = realloc(bbs->request.headers[bbs->request.header_pos].value, bbs->request.headers[bbs->request.header_pos].vallen + len);
+                memcpy(bbs->request.headers[bbs->request.header_pos].value + bbs->request.headers[bbs->request.header_pos].vallen, buf, len);
+                bbs->request.headers[bbs->request.header_pos].vallen += len;
         }
-        bbsr->last_was_value = 1;
+        bbs->request.last_was_value = 1;
         return 0;
 }
 
 static int body_cb(http_parser *parser, const char *buf, size_t len) {
-        struct bb_session_request *bbsr = (struct bb_session_request *) parser->data;
+        struct bb_session *bbs = (struct bb_session *) parser->data;
         // send a message as "body"
-	if (bbsr->sio_post) {
-		char *new_buf = realloc(bbsr->sio_post_buf, bbsr->sio_post_buf_size+len);
+	if (bbs->request.sio_post) {
+		char *new_buf = realloc(bbs->request.sio_post_buf, bbs->request.sio_post_buf_size+len);
 		if (!new_buf) {
 			bb_error("realloc()");
 			return -1;
 		}
-		bbsr->sio_post_buf = new_buf;
-		memcpy(bbsr->sio_post_buf+bbsr->sio_post_buf_size, buf, len);
-		bbsr->sio_post_buf_size+=len;
+		bbs->request.sio_post_buf = new_buf;
+		memcpy(bbs->request.sio_post_buf+bbs->request.sio_post_buf_size, buf, len);
+		bbs->request.sio_post_buf_size+=len;
 	}
 	else {
-		bb_zmq_send_msg(bbsr->bbs->dealer->identity, bbsr->bbs->dealer->len, (char *) &bbsr->bbs->uuid_part1, BB_UUID_LEN, "body", 4, (char *) buf, len);
+		bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "body", 4, (char *) buf, len);
 	}
         return 0;
 }
 
 static int response_headers_complete(http_parser *parser) {
-        struct bb_session_request *bbsr = (struct bb_session_request *) parser->data;
-        if (!http_should_keep_alive(parser)) {
-                bbsr->close = 1;
+        struct bb_session *bbs = (struct bb_session *) parser->data;
+	if (parser->content_length != ULLONG_MAX) {
+                bbs->response.content_length = parser->content_length;
         }
-        if (parser->content_length != ULLONG_MAX) {
-                bbsr->content_length = parser->content_length;
+        if (!http_should_keep_alive(parser)) {
+                bbs->response.close = 1;
         }
         return 0;
 }
 
 static int bb_session_headers_complete(http_parser *parser) {
-        struct bb_session_request *bbsr = (struct bb_session_request *) parser->data;
+        struct bb_session *bbs = (struct bb_session *) parser->data;
 
         // ok get the Host header
-        struct bb_http_header *bbhh = bb_http_req_header(bbsr, "Host", 4);
+        struct bb_http_header *bbhh = bb_http_req_header(bbs, "Host", 4);
         if (!bbhh) {
                 return -1;
         }
 
-        if (!bbsr->bbs->dealer) {
-                if (bb_set_dealer(bbsr->bbs, bbhh->value, bbhh->vallen)) {
+        if (!bbs->dealer) {
+                if (bb_set_dealer(bbs, bbhh->value, bbhh->vallen)) {
                 	return -1;
         	}
         }
 
-	if (parser->content_length != ULLONG_MAX) {
-                bbsr->content_length = parser->content_length;
-        }
-
+	// check for mountpoint...
 	// check for socket.io
-	if (!bb_startswith(bbsr->headers[0].key, bbsr->headers[0].keylen, "/socket.io/1/", 13)) {
-		if (bb_manage_socketio(bbsr)) {
+	if (!bb_startswith(bbs->request.headers[0].key, bbs->request.headers[0].keylen, "/socket.io/1/", 13)) {
+		if (bb_manage_socketio(bbs)) {
 			return -1;
 		}
 	}
 
         if (parser->upgrade) {
-                struct bb_http_header *bbhh = bb_http_req_header(bbsr, "Upgrade", 7);
+                struct bb_http_header *bbhh = bb_http_req_header(bbs, "Upgrade", 7);
                 if (bbhh) {
                         if (!bb_stricmp("websocket", 9, bbhh->value, bbhh->vallen)) {
-                                bbsr->type = BLASTBEAT_TYPE_WEBSOCKET;
-                                bb_send_websocket_handshake(bbsr);
+                                bbs->request.type = BLASTBEAT_TYPE_WEBSOCKET;
+                                bb_send_websocket_handshake(bbs);
 				goto msg;
                         }
                 }
@@ -149,16 +145,16 @@ static int bb_session_headers_complete(http_parser *parser) {
 
         if (!http_should_keep_alive(parser)) {
                 //printf("NO KEEP ALIVE !!!\n");
-                bbsr->close = 1;
+                bbs->response.close = 1;
         }
 
 msg:
-	if (bbsr->no_uwsgi) return 0;
+	if (bbs->request.no_uwsgi) return 0;
         // now encode headers in a uwsgi packet and send it as "headers" message
-	if (bb_uwsgi(bbsr)) {
+	if (bb_uwsgi(bbs)) {
 		return -1;
 	}
-        bb_zmq_send_msg(bbsr->bbs->dealer->identity, bbsr->bbs->dealer->len, (char *) &bbsr->bbs->uuid_part1, BB_UUID_LEN, "uwsgi", 5, bbsr->uwsgi_buf, bbsr->uwsgi_pos);
+        bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "uwsgi", 5, bbs->request.uwsgi_buf, bbs->request.uwsgi_pos);
         return 0;
 }
 
@@ -198,7 +194,6 @@ int bb_socketio_message(struct bb_session *bbs, char *buf, size_t len) {
         if (!sio_body) return -1;
         size_t sio_len = len - (sio_body-buf);
         // forward socket.io message to the right session
-                	fprintf(stderr,"SOCKET.IO MESSAGE TYPE: %c\n", buf[0]);
         switch(buf[0]) {
         	case '3':
                 	bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "socket.io/msg", 13, sio_body, sio_len);
@@ -218,16 +213,14 @@ int bb_socketio_message(struct bb_session *bbs, char *buf, size_t len) {
 
 static int bb_session_request_complete(http_parser *parser) {
         if (parser->upgrade) return 0;
-	struct bb_session_request *bbsr = (struct bb_session_request *) parser->data;
-	if (bbsr->sio_post) {
+	struct bb_session *bbs = (struct bb_session *) parser->data;
+	if (bbs->request.sio_post) {
 		// minimal = X:::
-		if (bbsr->sio_post_buf_size < 4) return -1;
+		if (bbs->request.sio_post_buf_size < 4) return -1;
 		// multipart message ?
-		fprintf(stderr,"%01x %01x %01x %01x %x\n", bbsr->sio_post_buf[0], bbsr->sio_post_buf[1],bbsr->sio_post_buf[2],bbsr->sio_post_buf[3], bbsr->sio_post_buf[4]);
-		if (bbsr->sio_post_buf[0] == '\xef' && bbsr->sio_post_buf[1] == '\xbf' && bbsr->sio_post_buf[2] == '\xbd') {
-			fprintf(stderr,"MULTIPART MESSAGE\n");
-			char *ptr = bbsr->sio_post_buf;
-			char *watermark = ptr+bbsr->sio_post_buf_size;
+		if (bbs->request.sio_post_buf[0] == '\xef' && bbs->request.sio_post_buf[1] == '\xbf' && bbs->request.sio_post_buf[2] == '\xbd') {
+			char *ptr = bbs->request.sio_post_buf;
+			char *watermark = ptr+bbs->request.sio_post_buf_size;
 			while(ptr < watermark) {
 				if (*ptr++ != '\xef') return -1;	
 				if (ptr+1 > watermark) return -1;
@@ -243,7 +236,6 @@ static int bb_session_request_complete(http_parser *parser) {
 					ptr++;
 				}
 				size_t part_len = str2num(base_of_num, end_of_num);
-				fprintf(stderr,"msg part size = %d\n", part_len);
 				if (*ptr++ != '\xef') return -1;	
 				if (ptr+1 > watermark) return -1;
 				if (*ptr++ != '\xbf') return -1;	
@@ -251,19 +243,23 @@ static int bb_session_request_complete(http_parser *parser) {
 				if (*ptr++ != '\xbd') return -1;	
 				if (ptr+1 > watermark) return -1;
 				if (ptr+part_len > watermark) return -1;
+/*
 				if (bb_socketio_message(bbsr->sio_bbs, ptr, part_len))
 					return -1;
+*/
 				ptr+=part_len;
 			}
 		}
 		else {
+/*
 			if (bb_socketio_message(bbsr->sio_bbs, bbsr->sio_post_buf, bbsr->sio_post_buf_size))
 				return -1;
+*/
 		}
 	} 
         if (http_should_keep_alive(parser)) {
                 // prepare for a new request
-                bbsr->bbs->new_request = 1;
+		// TODO clear the current request
         }
         return 0;
 }

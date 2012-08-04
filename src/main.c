@@ -4,35 +4,6 @@ struct blastbeat_server blastbeat;
 
 extern http_parser_settings bb_http_parser_settings;
 
-struct bb_session_request *bb_new_request(struct bb_session *bbs) {
-
-	struct bb_session_request *bbsr = malloc(sizeof(struct bb_session_request));
-	if (!bbsr) {
-		perror("malloc()");
-		return NULL;
-	}
-	memset(bbsr, 0, sizeof(struct bb_session_request));
-	bbsr->bbs = bbs;
-	http_parser_init(&bbsr->parser, HTTP_REQUEST);
-        bbsr->parser.data = bbsr;
-        bbsr->last_was_value = 1;
-	bbsr->content_length = ULLONG_MAX;
-
-	if (!bbs->requests_head) {
-		//printf("first request\n");
-		bbs->requests_head = bbsr;
-		bbs->requests_tail = bbsr;
-	}
-	else {
-		bbs->requests_tail->next = bbsr;
-		bbsr->prev = bbs->requests_tail;
-		bbs->requests_tail = bbsr;
-	}
-
-	bbs->new_request = 0;	
-	return bbsr;
-}
-
 
 /*
 
@@ -41,62 +12,42 @@ struct bb_session_request *bb_new_request(struct bb_session *bbs) {
 */
 
 static void bb_session_clear(struct bb_session *bbs) {
-	int i;
-	struct bb_connection *bbc = bbs->connection;
+	//int i;
+	//struct bb_connection *bbc = bbs->connection;
 
 	if (bbs->timer.session) {
 		ev_timer_stop(blastbeat.loop, &bbs->timer.timer);
+		bbs->timer.session = NULL;
 	}
 
 	// remove the session from the hash table
 	if (!bbs->persistent)
         	bb_sht_remove(bbs);
-		// remove requests
-                struct bb_session_request *bbsr = bbs->requests_head;
-                while(bbsr) {
-			if (bbsr->do_not_free) {
-				bbsr = bbsr->next;
-				continue;
-			}
-                        // in spdy mode, the first header is empty
-                        for(i=bbc->spdy;i<=bbsr->header_pos;i++) {
-                                free(bbsr->headers[i].key);
-                                free(bbsr->headers[i].value);
-                        }
-                        if (bbsr->uwsgi_buf) {
-                                free(bbsr->uwsgi_buf);
-                        }
-                        if (bbsr->websocket_message_queue) {
-                                free(bbsr->websocket_message_queue);
-                        }
-			if (bbsr->sio_post_buf) {
-				free(bbsr->sio_post_buf);
-			}
-                        struct bb_session_request *tmp_bbsr = bbsr;
-                        bbsr = bbsr->next;
-                        free(tmp_bbsr);
-                }
-		// remove groups
-		if (!bbs->persistent) {
-			struct bb_session_group *bbsg = bbs->groups;
-			while(bbsg) {
-				struct bb_session_group *current_bbsg = bbsg;
-				bbsg = bbsg->next;
-				bb_session_leave_group(bbs, current_bbsg->group);
-			}
 
-                	// if linked to a dealer, send a 'end' message
-                	if (bbs->dealer && !bbs->quiet_death) {
-				if (bbs->dealer > 0) {
-					bbs->dealer->load--;
-				}
-				else {
-					fprintf(stderr,"BUG IN DEALER LOAD MANAGEMENT\n");
-				}
-				fprintf(stderr,"END\n");
-                        	bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "end", 3, "", 0);
+	// remove requests
+	// TODO clear the HTTP request structure
+
+	// remove groups
+	if (!bbs->persistent) {
+		struct bb_session_group *bbsg = bbs->groups;
+		while(bbsg) {
+			struct bb_session_group *current_bbsg = bbsg;
+			bbsg = bbsg->next;
+			bb_session_leave_group(bbs, current_bbsg->group);
+		}
+
+               	// if linked to a dealer, send a 'end' message
+               	if (bbs->dealer && !bbs->quiet_death) {
+			if (bbs->dealer > 0) {
+				bbs->dealer->load--;
 			}
-                }
+			else {
+				fprintf(stderr,"BUG IN DEALER LOAD MANAGEMENT\n");
+			}
+			fprintf(stderr,"END\n");
+                       	bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "end", 3, "", 0);
+		}
+	}
 
 }
 
@@ -129,6 +80,7 @@ void bb_session_close(struct bb_session *bbs) {
 }
 
 void bb_connection_close(struct bb_connection *bbc) {
+	fprintf(stderr,"closing connection...\n");
 	ev_io_stop(blastbeat.loop, &bbc->reader.reader);
 	ev_io_stop(blastbeat.loop, &bbc->writer.writer);
 	if (bbc->ssl) {
@@ -144,6 +96,8 @@ void bb_connection_close(struct bb_connection *bbc) {
 		deflateEnd(&bbc->spdy_z_out);
 	}
 
+	fprintf(stderr,"closing connection[1]...\n");
+
 
 	// remove sessions	
 
@@ -154,18 +108,25 @@ void bb_connection_close(struct bb_connection *bbc) {
 		bbs = bbs->next;
 		if (!old_bbs->persistent)
 			free(old_bbs);
+		else {
+			old_bbs->connection = NULL;
+		}
 	}
+
+	fprintf(stderr,"closing connection[2]...\n");
 
 	// remove the writer queue
 	struct bb_writer_item *bbwi = bbc->writer.head;
 	while(bbwi) {
 		struct bb_writer_item *old_bbwi = bbwi;	
 		bbwi = bbwi->next;
-		if (old_bbwi->free_it) {
+		if (old_bbwi->free_it && old_bbwi->len > 0) {
 			free(old_bbwi->buf);
 		}
 		free(old_bbwi);
 	}
+
+	fprintf(stderr,"closing connection[3]...\n");
 
 	free(bbc);
 }
@@ -211,11 +172,11 @@ int bb_startswith(char *str1, size_t str1len, char *str2, size_t str2len) {
 	return memcmp(str1, str2, str2len);
 }
 
-struct bb_http_header *bb_http_req_header(struct bb_session_request *bbsr, char *key, size_t keylen) {
+struct bb_http_header *bb_http_req_header(struct bb_session *bbs, char *key, size_t keylen) {
 	off_t i;
-	for(i=1;i<=bbsr->header_pos;i++) {
-		if (!bb_stricmp(key, keylen, bbsr->headers[i].key, bbsr->headers[i].keylen)) {
-			return &bbsr->headers[i];
+	for(i=1;i<=bbs->request.header_pos;i++) {
+		if (!bb_stricmp(key, keylen, bbs->request.headers[i].key, bbs->request.headers[i].keylen)) {
+			return &bbs->request.headers[i];
 		}
 	}
 
@@ -277,17 +238,12 @@ static void read_callback(struct ev_loop *loop, struct ev_io *w, int revents) {
 			}
 			struct bb_session *bbs = bbc->sessions_head;
 			if (!bbs) goto clear;
-			// if no request is initialized, allocate it
-			if (bbs->new_request) {
-				//printf("allocating a new request\n");
-				if (!bb_new_request(bbs)) goto clear;
-			}
-			if (bbs->requests_tail->type == 0) {
-				int res = http_parser_execute(&bbs->requests_tail->parser, &bb_http_parser_settings, buf, len);
+			if (bbs->request.type == 0) {
+				int res = http_parser_execute(&bbs->request.parser, &bb_http_parser_settings, buf, len);
 				if (res != len) goto clear;
 			}
-			else if (bbs->requests_tail->type == BLASTBEAT_TYPE_WEBSOCKET) {
-				if (bb_manage_websocket(bbs->requests_tail, buf, len)) {
+			else if (bbs->request.type == BLASTBEAT_TYPE_WEBSOCKET) {
+				if (bb_manage_websocket(bbs, buf, len)) {
 					goto clear;
 				}
 			}
@@ -314,27 +270,25 @@ clear:
 static void session_timer_cb(struct ev_loop *loop, struct ev_timer *w, int revents) {
 	struct bb_session_timer *bbst = (struct bb_session_timer *) w;
 	struct bb_session *bbs = bbst->session;
+	if (!bbs) return;
 
-	if (bbs->sio_poller) {
-		fprintf(stderr,"NO MESSAGE SENT\n");
-		struct bb_session_request *bbsr = bbs->requests_tail;
-		if (!bbsr) goto error;
-		bbsr->http_major = '0' + bbsr->parser.http_major;
-                bbsr->http_minor = '0' + bbsr->parser.http_minor;
-
-				fprintf(stderr,"connection = %p\n", bbs->connection);
-                                if (bb_wq_push(bbs->connection, "HTTP/", 5, 0)) goto error;
-                                if (bb_wq_push(bbs->connection, &bbsr->http_major, 1, 0)) goto error;
-                                if (bb_wq_push(bbs->connection, ".", 1, 0)) goto error;
-                                if (bb_wq_push(bbs->connection, &bbsr->http_minor, 1, 0)) goto error;
-		const char *connected = " 200 OK\r\nContent-Type: text/plain; charset=UTF-8\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Credentials: true\r\nAccess-Control-Allow-Methods: POST, GET, OPTIONS\r\nAccess-Control-Max-Age: 3600\r\nContent-Length: 0\r\n\r\n";
-                if (bb_wq_push(bbsr->bbs->connection, (char *)connected, strlen(connected), 0)) goto error;
-                if (bb_wq_push_close(bbsr->bbs->connection)) goto error;
+	fprintf(stderr,"IN THE TIMER\n");
+	struct bb_socketio_message *bbsm = bbs->sio_queue;
+	if (!bbsm) {
+		fprintf(stderr,"DELIVERING EMPTY MESSAGE\n");
+		bb_socketio_send(bbs, "", 0);
+		return;
 	}
+	// TODO add an error counter
+	fprintf(stderr,"sending %.*s\n", bbsm->len, bbsm->buf);
+	if (bb_socketio_send(bbs, bbsm->buf, bbsm->len)) {
+		fprintf(stderr,"unable to deliver message\n");
+	}
+	bbs->sio_queue = bbsm->next;
+	free(bbsm);
 
 	return;
-error:
-	bb_connection_close(bbs->connection);
+	//bb_connection_close(bbs->connection);
 }
 
 
@@ -348,8 +302,11 @@ struct bb_session *bb_session_new(struct bb_connection *bbc) {
 	memset(bbs, 0, sizeof(struct bb_session));
 	// put the session in the hashtable
 	bb_sht_add(bbs);
-	// prepare for allocating a new request
-	bbs->new_request = 1;
+	// prepare the HTTP parser
+	http_parser_init(&bbs->request.parser, HTTP_REQUEST);
+	// map the session to the parser
+        bbs->request.parser.data = bbs;
+        bbs->request.last_was_value = 1;
 	// link to the connection
 	bbs->connection = bbc;
 	if (!bbc->sessions_head) {

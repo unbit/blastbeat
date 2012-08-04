@@ -87,18 +87,18 @@ found:
 
 }
 
-static int bb_spdy_uwsgi(struct bb_session_request *bbsr, char *ptr, uint16_t hlen) {
+static int bb_spdy_uwsgi(struct bb_session *bbs, char *ptr, uint16_t hlen) {
 
         // allocate the first chunk (leaving space for 4 bytes uwsgi header)
-        bbsr->uwsgi_buf = malloc(4096);
-        if (!bbsr->uwsgi_buf) {
+        bbs->request.uwsgi_buf = malloc(4096);
+        if (!bbs->request.uwsgi_buf) {
                 bb_error("malloc()");
                 return -1;
         }
-        bbsr->uwsgi_len = 4096;
-        bbsr->uwsgi_pos = 4;
+        bbs->request.uwsgi_len = 4096;
+        bbs->request.uwsgi_pos = 4;
 
-	if (add_uwsgi_item(bbsr, "SCRIPT_NAME", 11, "", 0, 0)) return -1;
+	if (add_uwsgi_item(bbs, "SCRIPT_NAME", 11, "", 0, 0)) return -1;
 
 	uint16_t i,klen,vlen;
 
@@ -114,63 +114,63 @@ static int bb_spdy_uwsgi(struct bb_session_request *bbsr, char *ptr, uint16_t hl
                 ptr += vlen;
 
 		if (!bb_strcmp(key, klen, "method", 6)) {
-			if (add_uwsgi_item(bbsr, "REQUEST_METHOD", 14, val, vlen, 0)) return -1;
+			if (add_uwsgi_item(bbs, "REQUEST_METHOD", 14, val, vlen, 0)) return -1;
 		}
 		else if (!bb_strcmp(key, klen, "version", 7)) {
-			if (add_uwsgi_item(bbsr, "SERVER_PROTOCOL", 15, val, vlen, 0)) return -1;
+			if (add_uwsgi_item(bbs, "SERVER_PROTOCOL", 15, val, vlen, 0)) return -1;
 		}
 		else if (!bb_strcmp(key, klen, "host", 4)) {
-			if (bb_set_dealer(bbsr->bbs, val, vlen))
+			if (bb_set_dealer(bbs, val, vlen))
 				return -1;
-			if (add_uwsgi_item(bbsr, "HTTP_HOST", 9, val, vlen, 0)) return -1;
+			if (add_uwsgi_item(bbs, "HTTP_HOST", 9, val, vlen, 0)) return -1;
 		}
 		else if (!bb_strcmp(key, klen, "content-type", 12)) {
-			 if (add_uwsgi_item(bbsr, "CONTENT_TYPE", 12, val, vlen, 0)) return -1;
+			 if (add_uwsgi_item(bbs, "CONTENT_TYPE", 12, val, vlen, 0)) return -1;
 		}
 		else if (!bb_strcmp(key, klen, "content-length", 14)) {
-			 if (add_uwsgi_item(bbsr, "CONTENT_LENGTH", 14, val, vlen, 0)) return -1;
+			 if (add_uwsgi_item(bbs, "CONTENT_LENGTH", 14, val, vlen, 0)) return -1;
 		}
 		else if (!bb_strcmp(key, klen, "url", 3)) {
         		char *query_string = memchr(val, '?', vlen);
         		if (query_string) {
-                		if (add_uwsgi_item(bbsr, "PATH_INFO", 9, val, query_string-val, 0)) return -1;
-                		if (add_uwsgi_item(bbsr, "QUERY_STRING", 12, query_string+1, (val+vlen)-(query_string+1), 0)) return -1;
+                		if (add_uwsgi_item(bbs, "PATH_INFO", 9, val, query_string-val, 0)) return -1;
+                		if (add_uwsgi_item(bbs, "QUERY_STRING", 12, query_string+1, (val+vlen)-(query_string+1), 0)) return -1;
         		}
         		else {
-                		if (add_uwsgi_item(bbsr, "PATH_INFO", 9, val, vlen, 0)) return -1;
-                		if (add_uwsgi_item(bbsr, "QUERY_STRING", 12, "", 0, 0)) return -1;
+                		if (add_uwsgi_item(bbs, "PATH_INFO", 9, val, vlen, 0)) return -1;
+                		if (add_uwsgi_item(bbs, "QUERY_STRING", 12, "", 0, 0)) return -1;
         		}
 		}
         	// add HTTP_ headers
 		else {
-			if (add_uwsgi_item(bbsr, key, klen, val, vlen, 1)) return -1;
+			if (add_uwsgi_item(bbs, key, klen, val, vlen, 1)) return -1;
 		}
 
         }
 
 	char *port = NULL;
-	if (bbsr->bbs->dealer) {
-		 port = strchr(bbsr->bbs->vhost->name, ':');
+	if (bbs->dealer) {
+		 port = strchr(bbs->vhost->name, ':');
 	}
 
-        if (bbsr->bbs->dealer && port) {
-               	if (add_uwsgi_item(bbsr, "SERVER_NAME", 11, bbsr->bbs->vhost->name, port-(bbsr->bbs->vhost->name), 0)) return -1;
-               	if (add_uwsgi_item(bbsr, "SERVER_PORT", 11, port+1, (bbsr->bbs->vhost->name + bbsr->bbs->vhost->len) - (port+1), 0)) return -1;
+        if (bbs->dealer && port) {
+               	if (add_uwsgi_item(bbs, "SERVER_NAME", 11, bbs->vhost->name, port-(bbs->vhost->name), 0)) return -1;
+               	if (add_uwsgi_item(bbs, "SERVER_PORT", 11, port+1, (bbs->vhost->name + bbs->vhost->len) - (port+1), 0)) return -1;
         }
-        else if (bbsr->bbs->dealer) {
-               	if (add_uwsgi_item(bbsr, "SERVER_NAME", 11, bbsr->bbs->vhost->name, bbsr->bbs->vhost->len, 0)) return -1;
-               	if (add_uwsgi_item(bbsr, "SERVER_PORT", 11, "80", 2, 0)) return -1;
+        else if (bbs->dealer) {
+               	if (add_uwsgi_item(bbs, "SERVER_NAME", 11, bbs->vhost->name, bbs->vhost->len, 0)) return -1;
+               	if (add_uwsgi_item(bbs, "SERVER_PORT", 11, "80", 2, 0)) return -1;
         }
 	else {
 		return -1;
 	}
 
         // set uwsgi header
-        uint16_t pktsize = bbsr->uwsgi_pos;
-        bbsr->uwsgi_buf[0] = 0;
-        bbsr->uwsgi_buf[1] = (uint8_t) (pktsize & 0xff);
-        bbsr->uwsgi_buf[2] = (uint8_t) ((pktsize >> 8) & 0xff);
-        bbsr->uwsgi_buf[3] = 0;
+        uint16_t pktsize = bbs->request.uwsgi_pos;
+        bbs->request.uwsgi_buf[0] = 0;
+        bbs->request.uwsgi_buf[1] = (uint8_t) (pktsize & 0xff);
+        bbs->request.uwsgi_buf[2] = (uint8_t) ((pktsize >> 8) & 0xff);
+        bbs->request.uwsgi_buf[3] = 0;
 
         return 0;
 }
@@ -198,17 +198,17 @@ static char *bb_spdy_deflate(z_stream *z, char *buf, size_t len, size_t *dlen) {
 	return dbuf;
 }
 
-int bb_spdy_push_headers(struct bb_session_request *bbsr) {
+int bb_spdy_push_headers(struct bb_session *bbs) {
         int i;
         // calculate the destination buffer size
         // zzzzzzzzzzzzzzzzzzZZXXstatusXXyyyXXversionXXyyyyyyyy
         // transform all of the headers keys to lowercase
         size_t spdy_len = 52;
-        for(i=1;i<=bbsr->header_pos;i++) {
-                spdy_len += 2 + bbsr->headers[i].keylen + 2 + bbsr->headers[i].vallen;
+        for(i=1;i<=bbs->request.header_pos;i++) {
+                spdy_len += 2 + bbs->request.headers[i].keylen + 2 + bbs->request.headers[i].vallen;
                 size_t j;
-                for(j=0;j<bbsr->headers[i].keylen;j++) {
-                        bbsr->headers[i].key[j] = tolower((int) bbsr->headers[i].key[j]);
+                for(j=0;j<bbs->request.headers[i].keylen;j++) {
+                        bbs->request.headers[i].key[j] = tolower((int) bbs->request.headers[i].key[j]);
                 }
         }
 
@@ -229,9 +229,10 @@ int bb_spdy_push_headers(struct bb_session_request *bbsr) {
         // 24 bit length (later)
         // ...
 
+/*
         // stream_id
-	bbsr->bbs->connection->spdy_even_stream_id+=2;
-	bbsr->spdy_even_stream_id = bbsr->bbs->connection->spdy_even_stream_id;
+	bbs->connection->spdy_even_stream_id+=2;
+	bbs->spdy_even_stream_id = bbsr->bbs->connection->spdy_even_stream_id;
         uint32_t stream_id = htonl(bbsr->spdy_even_stream_id);
         memcpy(buf+8, &stream_id, 4);
 
@@ -298,21 +299,22 @@ int bb_spdy_push_headers(struct bb_session_request *bbsr) {
         if (bb_wq_push(bbsr->bbs->connection, compresses_headers, ch_len, 1)) {
                 return -1;
         }
+*/
 
         return 0;
 }
 
-int bb_spdy_send_headers(struct bb_session_request *bbsr) {
+int bb_spdy_send_headers(struct bb_session *bbs) {
 	int i;
 	// calculate the destination buffer size
 	// zzzzzzzzzzzzzzZZXXstatusXXyyyXXversionXXyyyyyyyy
 	// transform all of the headers keys to lowercase
 	size_t spdy_len = 48;
-	for(i=1;i<=bbsr->header_pos;i++) {
-		spdy_len += 2 + bbsr->headers[i].keylen + 2 + bbsr->headers[i].vallen;
+	for(i=1;i<=bbs->request.header_pos;i++) {
+		spdy_len += 2 + bbs->request.headers[i].keylen + 2 + bbs->request.headers[i].vallen;
 		size_t j;
-		for(j=0;j<bbsr->headers[i].keylen;j++) {
-			bbsr->headers[i].key[j] = tolower((int) bbsr->headers[i].key[j]);
+		for(j=0;j<bbs->request.headers[i].keylen;j++) {
+			bbs->request.headers[i].key[j] = tolower((int) bbs->request.headers[i].key[j]);
 		}
 	}	
 
@@ -334,7 +336,7 @@ int bb_spdy_send_headers(struct bb_session_request *bbsr) {
 	// ...
 
 	// stream_id
-	uint32_t stream_id = htonl(bbsr->bbs->stream_id);
+	uint32_t stream_id = htonl(bbs->stream_id);
 	memcpy(buf+8, &stream_id, 4);
 
 	// unused
@@ -342,7 +344,7 @@ int bb_spdy_send_headers(struct bb_session_request *bbsr) {
 	buf[13] = 0x00;
 
 	// set the number of headers
-	uint16_t hlen = htons(bbsr->header_pos+2);
+	uint16_t hlen = htons(bbs->request.header_pos+2);
 	memcpy(buf+14, &hlen, 2);
 
 	char *ptr = buf+16;
@@ -351,9 +353,9 @@ int bb_spdy_send_headers(struct bb_session_request *bbsr) {
 	memcpy(ptr, "status", 6); ptr+=6;
 	slen = htons(3);
 	memcpy(ptr, &slen, 2); ptr+=2;
-	*ptr++ = (bbsr->parser.status_code/100) + '0';
-	*ptr++ = ((bbsr->parser.status_code%100)/10) + '0';
-	*ptr++ = ((bbsr->parser.status_code%100)%10) + '0';
+	*ptr++ = (bbs->request.parser.status_code/100) + '0';
+	*ptr++ = ((bbs->request.parser.status_code%100)/10) + '0';
+	*ptr++ = ((bbs->request.parser.status_code%100)%10) + '0';
 
 	slen = htons(7);
 	memcpy(ptr, &slen, 2); ptr+=2;
@@ -361,26 +363,26 @@ int bb_spdy_send_headers(struct bb_session_request *bbsr) {
 
 	slen = htons(8);
 	char proto[9];
-        if (snprintf(proto, 9, "HTTP/%d.%d", bbsr->parser.http_major, bbsr->parser.http_minor) != 8) {
+        if (snprintf(proto, 9, "HTTP/%d.%d", bbs->request.parser.http_major, bbs->request.parser.http_minor) != 8) {
                 return -1;
         }
 	memcpy(ptr, &slen, 2); ptr+=2;
 	memcpy(ptr, proto, 8); ptr+=8;	
 
 	// generate spdy headers from respons headers
-	for(i=1;i<=bbsr->header_pos;i++) {
-		slen = htons(bbsr->headers[i].keylen);
+	for(i=1;i<=bbs->request.header_pos;i++) {
+		slen = htons(bbs->request.headers[i].keylen);
 		memcpy(ptr, &slen, 2); ptr += 2;
-		memcpy(ptr, bbsr->headers[i].key, bbsr->headers[i].keylen);
-		ptr += bbsr->headers[i].keylen;
-		slen = htons(bbsr->headers[i].vallen);
+		memcpy(ptr, bbs->request.headers[i].key, bbs->request.headers[i].keylen);
+		ptr += bbs->request.headers[i].keylen;
+		slen = htons(bbs->request.headers[i].vallen);
 		memcpy(ptr, &slen, 2); ptr += 2;
-		memcpy(ptr, bbsr->headers[i].value, bbsr->headers[i].vallen);
-		ptr += bbsr->headers[i].vallen;
+		memcpy(ptr, bbs->request.headers[i].value, bbs->request.headers[i].vallen);
+		ptr += bbs->request.headers[i].vallen;
 	}
 
 	size_t ch_len = 0;
-	char *compresses_headers = bb_spdy_deflate(&bbsr->bbs->connection->spdy_z_out, buf+14, spdy_len-14, &ch_len);
+	char *compresses_headers = bb_spdy_deflate(&bbs->connection->spdy_z_out, buf+14, spdy_len-14, &ch_len);
 	if (!compresses_headers) {
 		return -1;
 	}
@@ -389,18 +391,18 @@ int bb_spdy_send_headers(struct bb_session_request *bbsr) {
 	void *ll = &l;
 	memcpy(buf+5, ll+1, 3);
 
-	if (bb_wq_push(bbsr->bbs->connection, buf, 14, 1)) {
+	if (bb_wq_push(bbs->connection, buf, 14, 1)) {
 		return -1;
 	}
 
-	if (bb_wq_push(bbsr->bbs->connection, compresses_headers, ch_len, 1)) {
+	if (bb_wq_push(bbs->connection, compresses_headers, ch_len, 1)) {
 		return -1;
 	}
 	
 	return 0;
 }
 
-int bb_spdy_send_body(struct bb_session_request *bbsr, char *buf, size_t len) {
+int bb_spdy_send_body(struct bb_session *bbs, char *buf, size_t len) {
 	int ret = 0;
 	uint32_t stream_id;
 	char *spdy = malloc(len + 8);
@@ -413,11 +415,12 @@ int bb_spdy_send_body(struct bb_session_request *bbsr, char *buf, size_t len) {
 	stream_id = (stream_id >> 1) & 0x7fffffff;
 	memcpy(spdy, &stream_id, 4);
 */
-	if (bbsr->type == BLASTBEAT_TYPE_SPDY_PUSH) {
-		stream_id = htonl(bbsr->spdy_even_stream_id);
+	if (bbs->request.type == BLASTBEAT_TYPE_SPDY_PUSH) {
+		//stream_id = htonl(bbsr->spdy_even_stream_id);
+		stream_id = 0;
 	}
 	else {
-		stream_id = htonl(bbsr->bbs->stream_id);
+		stream_id = htonl(bbs->stream_id);
 	}
 	memcpy(spdy, &stream_id, 4);
 	if (len > 0) {
@@ -426,7 +429,7 @@ int bb_spdy_send_body(struct bb_session_request *bbsr, char *buf, size_t len) {
 	else {
 		// end of the stream
 		spdy[4] = 0x01;
-		if (bbsr->type == BLASTBEAT_TYPE_SPDY_PUSH) {
+		if (bbs->request.type == BLASTBEAT_TYPE_SPDY_PUSH) {
 			ret = 0;
 		}
 		else {
@@ -439,7 +442,7 @@ int bb_spdy_send_body(struct bb_session_request *bbsr, char *buf, size_t len) {
 	memcpy(spdy+5, sl+1, 3);
 	memcpy(spdy + 8, buf, len);
 
-	if (bb_wq_push(bbsr->bbs->connection, spdy, len+8, 1)) {
+	if (bb_wq_push(bbs->connection, spdy, len+8, 1)) {
 		return -1;
 	}
 
@@ -447,9 +450,9 @@ int bb_spdy_send_body(struct bb_session_request *bbsr, char *buf, size_t len) {
 }
 
 
-static int bb_spdy_inflate(struct bb_session_request *bbsr, char *buf, size_t len) {
+static int bb_spdy_inflate(struct bb_session *bbs, char *buf, size_t len) {
 
-	struct bb_connection *bbc = bbsr->bbs->connection;
+	struct bb_connection *bbc = bbs->connection;
 	char *dbuf = NULL;
 	size_t dbuf_len = 0;
 	char zbuf[4096];
@@ -490,7 +493,7 @@ static int bb_spdy_inflate(struct bb_session_request *bbsr, char *buf, size_t le
 	// generate a uwsgi packet from spdy headers
 	// transform str sizes to little endian
 	// TODO add a safety check on max buffer size
-	if (bb_spdy_uwsgi(bbsr, dbuf+2, hlen)) return -1;
+	if (bb_spdy_uwsgi(bbs, dbuf+2, hlen)) return -1;
 
 	return 0;
 }
@@ -523,13 +526,11 @@ static int bb_manage_spdy_msg(struct bb_connection *bbc) {
 			bbc->spdy_stream_id = ntohl(bbc->spdy_stream_id);
 			struct bb_session *bbs = bb_session_new(bbc);
 			bbs->stream_id = bbc->spdy_stream_id;
-			struct bb_session_request *bbsr = bb_new_request(bbs);
-			if (!bbsr) return -1;
-			if (bb_spdy_inflate(bbsr, bbc->spdy_body_buf, bbc->spdy_length)) {
+			if (bb_spdy_inflate(bbs, bbc->spdy_body_buf, bbc->spdy_length)) {
 				return -1;
 			}
 			if (!bbs->dealer) return -1;
-			bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "uwsgi", 5, bbsr->uwsgi_buf, bbsr->uwsgi_pos);
+			bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "uwsgi", 5, bbs->request.uwsgi_buf, bbs->request.uwsgi_pos);
 			break;
 		// RST
 		case 0x03:

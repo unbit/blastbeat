@@ -50,7 +50,7 @@ static void wq_decapitate(struct bb_writer *bbw) {
 		bbw->tail = NULL;
 		bbw->head = NULL;
 	}
-	if (head->free_it) {
+	if (head->free_it && head->len > 0) {
 		free(head->buf);
 	}
 	free(head);
@@ -92,6 +92,9 @@ end:
 
 
 int bb_wq_push(struct bb_connection *bbc, char *buf, size_t len, int free_it) {
+
+	if (!bbc) return -1;
+
 	if (wq_push(&bbc->writer, buf, len, free_it, 0)) return -1;
 	// an item has been pushed, start the ev_io
 	ev_io_start(blastbeat.loop, &bbc->writer.writer);
@@ -100,6 +103,8 @@ int bb_wq_push(struct bb_connection *bbc, char *buf, size_t len, int free_it) {
 
 int bb_wq_push_close(struct bb_connection *bbc) {
 
+	if (!bbc) return -1;
+
 	if (wq_push(&bbc->writer, NULL, 0, 0, 1)) return -1;
 	// an item has been pushed, start the ev_io
 	ev_io_start(blastbeat.loop, &bbc->writer.writer);
@@ -107,6 +112,8 @@ int bb_wq_push_close(struct bb_connection *bbc) {
 }
 
 int bb_wq_push_copy(struct bb_connection *bbc, char *buf, size_t len, int free_it) {
+
+	if (!bbc) return -1;
 
 	char *new_buf = malloc(len);
 	if (!new_buf) {

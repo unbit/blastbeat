@@ -33,6 +33,7 @@
 #define MAX_HEADERS 100
 
 #define MAX_CHUNK_STORAGE ((sizeof("18446744073709551616") * 2) + 3)
+#define MAX_CONTENT_LENGTH (sizeof("18446744073709551616") + 5)
 #ifndef ULLONG_MAX
 # define ULLONG_MAX ((uint64_t) -1) /* 2^64-1 */
 #endif
@@ -138,41 +139,42 @@ struct bb_http_header {
 struct bb_session;
 struct bb_session_entry;
 
-// each session can generate a specific request
-struct bb_session_request {
-        struct bb_session *bbs;
-        http_parser parser;
-        off_t header_pos;
-        int last_was_value;
-        int close;
-        int type;
-	int do_not_free;
-	// do not generate a uwsgi message
-	int no_uwsgi;
-	// is it a socket.io POST ?
-	int sio_post;
-	char *sio_post_buf;
-	size_t sio_post_buf_size;
-	// ptr to the persistent socket.io session
-        struct bb_session *sio_bbs;
+struct bb_request {
+	int type;
+	// the joyent http_parser
+	http_parser parser;
+	// parsed headers
+	off_t header_pos;
+	// used by the header parser
+	int last_was_value;
+	// the list of headers (must be freed after each request)
+	struct bb_http_header headers[MAX_HEADERS];
 	char http_major;
 	char http_minor;
-        uint64_t content_length;
-        uint64_t written_bytes;
-	char *uwsgi_buf;
-	size_t uwsgi_len;
-	off_t uwsgi_pos;
-	uint32_t spdy_even_stream_id;
-        char *websocket_message_queue;
+	// websocket parser
+	char *websocket_message_queue;
         uint64_t websocket_message_queue_len;
         uint64_t websocket_message_queue_pos;
         uint8_t websocket_message_phase;
         uint8_t websocket_message_has_mask;
-        //char websocket_message_mask[4];
-        uint64_t websocket_message_size;
-        struct bb_http_header headers[MAX_HEADERS];
-        struct bb_session_request *prev;
-        struct bb_session_request *next;
+	uint64_t websocket_message_size;
+	// uwsgi translator
+	int no_uwsgi;
+	char *uwsgi_buf;
+        size_t uwsgi_len;
+        off_t uwsgi_pos;
+	// socket.io
+	int sio_post;
+	char *sio_post_buf;
+	size_t sio_post_buf_size;
+};
+
+struct bb_response {
+	// the joyent http_parser
+        http_parser parser;
+	uint64_t content_length;
+	uint64_t written_bytes;
+	int close;
 };
 
 
@@ -267,10 +269,11 @@ struct bb_session {
 	// the queue of unsent messages
 	struct bb_socketio_message *sio_queue;
 
-	// if set, generate a new session_request structure
-        int new_request;
-        struct bb_session_request *requests_head;
-        struct bb_session_request *requests_tail;
+	// the request parser structure (http, spdy, websocket, socket.io)
+        struct bb_request request;
+
+	// the response parser structure
+        struct bb_response response;
 
 	// sanity check for 'retry' command
 	uint64_t hops;
@@ -369,10 +372,10 @@ void bb_ini_config(char *);
 void bb_error(char *);
 void bb_error_exit(char *);
 
-struct bb_http_header *bb_http_req_header(struct bb_session_request *, char *, size_t);
+struct bb_http_header *bb_http_req_header(struct bb_session *, char *, size_t);
 int bb_set_dealer(struct bb_session *, char *, size_t);
-int bb_uwsgi(struct bb_session_request *);
-int bb_manage_chunk(struct bb_session_request *, char *, size_t);
+int bb_uwsgi(struct bb_session *);
+int bb_manage_chunk(struct bb_session *, char *, size_t);
 
 struct bb_session *bb_sht_get(char *);
 void bb_sht_remove(struct bb_session *);
@@ -389,7 +392,6 @@ ssize_t bb_ssl_read(struct bb_connection *, char *, size_t);
 ssize_t bb_ssl_write(struct bb_connection *, char *, size_t);
 
 struct bb_session *bb_session_new(struct bb_connection *);
-struct bb_session_request *bb_new_request(struct bb_session *);
 
 void bb_connection_close(struct bb_connection *);
 void bb_session_close(struct bb_session *);
@@ -400,7 +402,7 @@ void bb_zmq_receiver(struct ev_loop *, struct ev_io *, int);
 
 void bb_ssl_info_cb(SSL const *, int, int);
 
-int add_uwsgi_item(struct bb_session_request *, char *, uint16_t, char *val, uint16_t, int);
+int add_uwsgi_item(struct bb_session *, char *, uint16_t, char *val, uint16_t, int);
 
 void bb_socket_ssl(struct bb_acceptor *);
 
@@ -408,18 +410,19 @@ int bb_stricmp(char *, size_t, char *, size_t);
 int bb_strcmp(char *, size_t, char *, size_t);
 int bb_startswith(char *, size_t, char *, size_t);
 
-int bb_manage_websocket(struct bb_session_request *, char *, ssize_t);
-int bb_send_websocket_handshake(struct bb_session_request *);
-int bb_websocket_reply(struct bb_session_request *, char *, size_t);
+int bb_manage_websocket(struct bb_session *, char *, ssize_t);
+int bb_send_websocket_handshake(struct bb_session *);
+int bb_websocket_reply(struct bb_session *, char *, size_t);
 
 int bb_manage_spdy(struct bb_connection *, char *, ssize_t);
-int bb_spdy_send_body(struct bb_session_request *, char *, size_t);
-int bb_spdy_send_headers(struct bb_session_request *);
-int bb_spdy_push_headers(struct bb_session_request *);
+int bb_spdy_send_body(struct bb_session *, char *, size_t);
+int bb_spdy_send_headers(struct bb_session *);
+int bb_spdy_push_headers(struct bb_session *);
 
 int bb_join_group(struct bb_session *, char *, size_t);
 int bb_session_leave_group(struct bb_session *, struct bb_group *);
 struct bb_group *bb_ght_get(struct bb_virtualhost *, char *, size_t);
 
-int bb_manage_socketio(struct bb_session_request *);
-int bb_socketio_push(struct bb_session_request *, char, char *, size_t);
+int bb_manage_socketio(struct bb_session *);
+int bb_socketio_push(struct bb_session *, char, char *, size_t);
+int bb_socketio_send(struct bb_session *, char *, size_t);
