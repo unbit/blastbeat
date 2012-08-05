@@ -153,7 +153,7 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 
                         // dead/invalid session ?
                         struct bb_session *bbs = bb_sht_get(zmq_msg_data(&msg[1]));
-                        if (!bbs) {fprintf(stderr,"NO SESSION FOUND !!!!\n"); goto next;}
+                        if (!bbs) goto next;
 
 			update_dealer(bbs->dealer, time(NULL));
 
