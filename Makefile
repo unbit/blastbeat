@@ -1,7 +1,19 @@
-CFLAGS=-g -O2 -Wall -Wno-strict-aliasing
-LIBS=-lzmq -lssl -lcrypto -lev -lz -luuid
+CFLAGS+=-g -O2 -Wall -Wno-strict-aliasing
+LIBS+=-lzmq -lssl -lcrypto -lev -lz -luuid
 
-OBJ = src/main.o src/config.o src/zmq.o src/http.o src/ssl.o src/spdy.o src/uwsgi.o src/websocket.o src/sessions_ht.o src/writequeue.o src/groups.o src/socketio.o http-parser/http_parser.o
+OBJ = src/main.o
+OBJ+= src/config.o
+OBJ+= src/zmq.o
+OBJ+= src/http.o
+OBJ+= src/ssl.o
+OBJ+= src/spdy.o
+OBJ+= src/uwsgi.o
+OBJ+= src/websocket.o
+OBJ += src/sessions_ht.o
+OBJ+= src/writequeue.o
+OBJ+= src/groups.o
+OBJ+= src/socketio.o
+OBJ += http-parser/http_parser.o
 
 
 all: $(OBJ)
