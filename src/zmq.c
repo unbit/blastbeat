@@ -179,7 +179,7 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 			on_cmd("websocket") {
 				if (route) {
 					foreach_session_in_group
-                                		if (bb_websocket_reply(bbs, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3])))
+                                		if (bb_websocket_reply(bbgs->session, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3])))
                                         		bb_connection_close(bbs->connection);
                                         end_foreach
 				}
@@ -191,7 +191,7 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 			on_cmd("chunk") {
 				if (route) {
 					foreach_session_in_group
-                                		if (bb_manage_chunk(bbs, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3])))
+                                		if (bb_manage_chunk(bbgs->session, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3])))
                                         		bb_connection_close(bbs->connection);
 					end_foreach
                                 }
