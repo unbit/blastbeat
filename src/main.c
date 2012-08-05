@@ -31,6 +31,11 @@ void bb_session_close(struct bb_session *bbs) {
         // clear the HTTP request structure
         bb_initialize_request(bbs);
 
+	// clear dynamic memory areas (if required)
+	if (bbs->push_queue) {
+		free(bbs->push_queue);
+	}
+
         // remove groups
         if (!bbs->persistent) {
                 struct bb_session_group *bbsg = bbs->groups;

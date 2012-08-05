@@ -146,7 +146,6 @@ struct bb_session_entry;
 
 struct bb_request {
 	int initialized;
-	int type;
 	// the joyent http_parser
 	http_parser parser;
 	// parsed headers
@@ -265,6 +264,11 @@ struct bb_session {
 
 	// used by spdy
 	uint32_t stream_id;
+	// true if already correctly cleared (from the protocol pov)
+	int fin;
+	// the push queue
+	char *push_queue;
+	size_t push_queue_len;
 
 	// each session can run on a different dealer
 	struct bb_dealer *dealer;
@@ -456,3 +460,5 @@ int bb_http_func(struct bb_connection *, char *, size_t);
 int bb_http_send_headers(struct bb_session *, char *, size_t);
 int bb_http_send_end(struct bb_session *);
 int bb_http_send_body(struct bb_session *, char *, size_t);
+
+int bb_websocket_func(struct bb_connection *, char *, size_t);

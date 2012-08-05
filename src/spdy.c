@@ -208,15 +208,17 @@ static char *bb_spdy_deflate(z_stream *z, char *buf, size_t len, size_t *dlen) {
 
 int bb_spdy_push_headers(struct bb_session *bbs) {
         int i;
+	// connection is required for correct stream numbering
+	struct bb_connection *bbc = bbs->connection;
         // calculate the destination buffer size
         // zzzzzzzzzzzzzzzzzzZZXXstatusXXyyyXXversionXXyyyyyyyy
         // transform all of the headers keys to lowercase
         size_t spdy_len = 52;
-        for(i=1;i<=bbs->request.header_pos;i++) {
-                spdy_len += 2 + bbs->request.headers[i].keylen + 2 + bbs->request.headers[i].vallen;
+        for(i=1;i<=bbs->response.header_pos;i++) {
+                spdy_len += 2 + bbs->response.headers[i].keylen + 2 + bbs->response.headers[i].vallen;
                 size_t j;
-                for(j=0;j<bbs->request.headers[i].keylen;j++) {
-                        bbs->request.headers[i].key[j] = tolower((int) bbs->request.headers[i].key[j]);
+                for(j=0;j<bbs->response.headers[i].keylen;j++) {
+                        bbs->response.headers[i].key[j] = tolower((int) bbs->response.headers[i].key[j]);
                 }
         }
 
@@ -225,6 +227,7 @@ int bb_spdy_push_headers(struct bb_session *bbs) {
                 bb_error("malloc()");
                 return -1;
         }
+
 
         // SYN_STREAM
         buf[0] = 0x80;
@@ -237,15 +240,24 @@ int bb_spdy_push_headers(struct bb_session *bbs) {
         // 24 bit length (later)
         // ...
 
-/*
         // stream_id
-	bbs->connection->spdy_even_stream_id+=2;
-	bbs->spdy_even_stream_id = bbsr->bbs->connection->spdy_even_stream_id;
-        uint32_t stream_id = htonl(bbsr->spdy_even_stream_id);
+	// increase the push queue
+        bbc->spdy_even_stream_id+=2;
+	char *tmp_queue = realloc(bbs->push_queue, bbs->push_queue_len+4);
+	if (!tmp_queue) {
+		bb_error("realloc()");
+		free(buf);
+		return -1;	
+	}
+	bbs->push_queue = tmp_queue;
+        uint32_t stream_id = htonl(bbc->spdy_even_stream_id);
         memcpy(buf+8, &stream_id, 4);
+	memcpy(bbs->push_queue+bbs->push_queue_len, &stream_id, 4);
+	bbs->push_queue_len+=4;
+
 
 	// Associated-To-Stream-ID
-        stream_id = htonl(bbsr->bbs->stream_id);
+        stream_id = htonl(bbs->stream_id);
         memcpy(buf+12, &stream_id, 4);
 
         // unused
@@ -253,7 +265,7 @@ int bb_spdy_push_headers(struct bb_session *bbs) {
         buf[17] = 0x00;
 
 	// set the number of headers
-        uint16_t hlen = htons(bbsr->header_pos+2);
+        uint16_t hlen = htons(bbs->response.header_pos+2);
         memcpy(buf+18, &hlen, 2);
 
         char *ptr = buf+20;
@@ -262,9 +274,9 @@ int bb_spdy_push_headers(struct bb_session *bbs) {
         memcpy(ptr, "status", 6); ptr+=6;
         slen = htons(3);
         memcpy(ptr, &slen, 2); ptr+=2;
-        *ptr++ = (bbsr->parser.status_code/100) + '0';
-        *ptr++ = ((bbsr->parser.status_code%100)/10) + '0';
-        *ptr++ = ((bbsr->parser.status_code%100)%10) + '0';
+        *ptr++ = (bbs->response.parser.status_code/100) + '0';
+        *ptr++ = ((bbs->response.parser.status_code%100)/10) + '0';
+        *ptr++ = ((bbs->response.parser.status_code%100)%10) + '0';
 
         slen = htons(7);
         memcpy(ptr, &slen, 2); ptr+=2;
@@ -272,26 +284,26 @@ int bb_spdy_push_headers(struct bb_session *bbs) {
 
         slen = htons(8);
         char proto[9];
-        if (snprintf(proto, 9, "HTTP/%d.%d", bbsr->parser.http_major, bbsr->parser.http_minor) != 8) {
+        if (snprintf(proto, 9, "HTTP/%d.%d", bbs->response.parser.http_major, bbs->response.parser.http_minor) != 8) {
                 return -1;
         }
         memcpy(ptr, &slen, 2); ptr+=2;
         memcpy(ptr, proto, 8); ptr+=8;
 
         // generate spdy headers from respons headers
-        for(i=1;i<=bbsr->header_pos;i++) {
-                slen = htons(bbsr->headers[i].keylen);
+        for(i=1;i<=bbs->response.header_pos;i++) {
+                slen = htons(bbs->response.headers[i].keylen);
                 memcpy(ptr, &slen, 2); ptr += 2;
-                memcpy(ptr, bbsr->headers[i].key, bbsr->headers[i].keylen);
-                ptr += bbsr->headers[i].keylen;
-                slen = htons(bbsr->headers[i].vallen);
+                memcpy(ptr, bbs->response.headers[i].key, bbs->response.headers[i].keylen);
+                ptr += bbs->response.headers[i].keylen;
+                slen = htons(bbs->response.headers[i].vallen);
                 memcpy(ptr, &slen, 2); ptr += 2;
-                memcpy(ptr, bbsr->headers[i].value, bbsr->headers[i].vallen);
-                ptr += bbsr->headers[i].vallen;
+                memcpy(ptr, bbs->response.headers[i].value, bbs->response.headers[i].vallen);
+                ptr += bbs->response.headers[i].vallen;
         }
 
         size_t ch_len = 0;
-        char *compresses_headers = bb_spdy_deflate(&bbsr->bbs->connection->spdy_z_out, buf+18, spdy_len-18, &ch_len);
+        char *compresses_headers = bb_spdy_deflate(&bbc->spdy_z_out, buf+18, spdy_len-18, &ch_len);
         if (!compresses_headers) {
                 return -1;
         }
@@ -300,14 +312,13 @@ int bb_spdy_push_headers(struct bb_session *bbs) {
         void *ll = &l;
         memcpy(buf+5, ll+1, 3);
 
-        if (bb_wq_push(bbsr->bbs->connection, buf, 18, 1)) {
+        if (bb_wq_push(bbs, buf, 18, BB_WQ_FREE)) {
                 return -1;
         }
 
-        if (bb_wq_push(bbsr->bbs->connection, compresses_headers, ch_len, 1)) {
+        if (bb_wq_push(bbs, compresses_headers, ch_len, BB_WQ_FREE)) {
                 return -1;
         }
-*/
 
         return 0;
 }
@@ -411,57 +422,66 @@ static int bb_spdy_send_headers(struct bb_session *bbs, char *unused_buf, size_t
 }
 
 static int bb_spdy_send_body(struct bb_session *bbs, char *buf, size_t len) {
-	int ret = 0;
-	uint32_t stream_id;
+
+	// gracefully stop if the session is already closed
+	if (bbs->fin) return 0;
+
 	char *spdy = malloc(len + 8);
 	if (!spdy) {
 		bb_error("malloc()");
 		return -1;
 	}
-/*
-	uint32_t stream_id = htonl(1);
-	stream_id = (stream_id >> 1) & 0x7fffffff;
-	memcpy(spdy, &stream_id, 4);
-	if (bbs->response.type == BLASTBEAT_TYPE_SPDY_PUSH) {
-		//stream_id = htonl(bbsr->spdy_even_stream_id);
-		stream_id = 0;
+
+	// set stream_id
+	if (bbs->push_queue_len > 0) {
+		memcpy(spdy, bbs->push_queue+(bbs->push_queue_len-4), 4);
 	}
 	else {
-*/
-		stream_id = htonl(bbs->stream_id);
-//	}
-	memcpy(spdy, &stream_id, 4);
+		uint32_t stream_id = htonl(bbs->stream_id);
+		memcpy(spdy, &stream_id, 4);
+	}
+
+	// set length
+	uint32_t stream_length = htonl(len);
+        void *sl = &stream_length;
+        memcpy(spdy+5, sl+1, 3);
+        memcpy(spdy + 8, buf, len);
+
+	// set flags
 	if (len > 0) {
 		spdy[4] = 0;
-	}
-	else {
-		// end of the stream
-		spdy[4] = 0x01;
-/*
-		if (bbs->request.type == BLASTBEAT_TYPE_SPDY_PUSH) {
-			ret = 0;
-		}
-		else {
-*/
-			//ret = 1;
-//		}
+		return bb_wq_push(bbs, spdy, len+8, BB_WQ_FREE);
 	}
 
-	uint32_t stream_length = htonl(len);
-	void *sl = &stream_length;
-	memcpy(spdy+5, sl+1, 3);
-	memcpy(spdy + 8, buf, len);
-
-	if (bb_wq_push(bbs, spdy, len+8, BB_WQ_FREE)) {
+	// end of the stream
+	spdy[4] = 0x01;
+	if (bb_wq_push(bbs, spdy, len+8, BB_WQ_FREE))
 		return -1;
+	if (bbs->push_queue_len > 0) {
+		if (bbs->push_queue_len <= 4) {
+			free(bbs->push_queue);
+			bbs->push_queue = NULL;
+			bbs->push_queue_len = 0;
+			return 0;
+		}
+		char *tmp_queue = realloc(bbs->push_queue, bbs->push_queue_len-4);
+		if (!tmp_queue) {
+			bb_error("realloc()");
+			return -1;
+		}	
+		bbs->push_queue = tmp_queue;
+		bbs->push_queue_len-=4;
+		return 0;
 	}
 
-	return ret;
+	bbs->fin = 1;
+	return bb_wq_push_eos(bbs);
+
 }
 
 static int bb_spdy_send_end(struct bb_session *bbs) {
-	if (bb_spdy_send_body(bbs, "", 0)) return -1;
-	return bb_wq_push_eos(bbs);
+	if (bbs->fin) return 0;
+	return bb_spdy_send_body(bbs, "", 0);
 }
 
 static int bb_spdy_inflate(struct bb_session *bbs, char *buf, size_t len) {
@@ -557,6 +577,7 @@ static int bb_manage_spdy_msg(struct bb_connection *bbc) {
 		case 0x03:
 			memcpy(&bbc->spdy_stream_id, bbc->spdy_body_buf, 4);
 			fprintf(stderr,"RESET THE STREAM %d\n", ntohl(bbc->spdy_stream_id));	
+			// TODO scan all of the connection-related sessions and close the required one
 			break;
 		// SETTINGS
 		case 0x04:

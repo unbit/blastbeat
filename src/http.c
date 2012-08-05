@@ -221,7 +221,7 @@ static int bb_session_headers_complete(http_parser *parser) {
                 struct bb_http_header *bbhh = bb_http_req_header(bbs, "Upgrade", 7);
                 if (bbhh) {
                         if (!bb_stricmp("websocket", 9, bbhh->value, bbhh->vallen)) {
-                                bbs->request.type = BLASTBEAT_TYPE_WEBSOCKET;
+				bbs->connection->func = bb_websocket_func;
                                 bb_send_websocket_handshake(bbs);
 				goto msg;
                         }

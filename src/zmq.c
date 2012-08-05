@@ -168,9 +168,10 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 			}
 
 			int in_group = 1;
+			size_t msg_len = zmq_msg_size(&msg[3]);
 
 			on_cmd("body") {
-				if (bbs->send_body(bbs, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3])))
+				if (bbs->send_body(bbs, zmq_msg_data(&msg[3]), msg_len))
 					bb_connection_close(bbs->connection);
 				goto next;
                         }
@@ -202,7 +203,6 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 
 			on_cmd("headers") {
 				bb_initialize_response(bbs);
-				size_t msg_len = zmq_msg_size(&msg[3]);
 				int res = http_parser_execute(&bbs->response.parser, &bb_http_response_parser_settings, zmq_msg_data(&msg[3]), msg_len);
 				if (res != msg_len) {
 					bb_connection_close(bbs->connection);
@@ -213,27 +213,19 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 				goto next;
                         }
 
-/*
 			on_cmd("push") {
-				if (!bbs->connection->spdy) goto next;
-				// in SPDY mode we parse headers as a normal HTTP request (saving data)
-				struct bb_session_request *new_request = bb_new_request(bbs);
-				if (!new_request) goto next;
-				bbsr = new_request;
-				bbsr->type = BLASTBEAT_TYPE_SPDY_PUSH;
-                                http_parser_init(&bbsr->parser, HTTP_RESPONSE);
-                                bbsr->parser.data = bbsr;
-                                int res = http_parser_execute(&bbsr->parser, &bb_http_response_parser_settings2, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]));
-                                // invalid headers ?
-                                if (res != zmq_msg_size(&msg[3])) {
-                                	bb_session_close(bbs);
+				// only connected sessions can push
+				if (!bbs->connection) goto next;
+				bb_initialize_response(bbs);
+                                int res = http_parser_execute(&bbs->response.parser, &bb_http_response_parser_settings, zmq_msg_data(&msg[3]), msg_len);
+                                if (res != msg_len) {
+                                        bb_connection_close(bbs->connection);
                                         goto next;
                                 }
-                                if (bb_spdy_push_headers(bbsr))
-                                	bb_session_close(bbs);
+                                if (bb_spdy_push_headers(bbs))
+                                	bb_connection_close(bbs->connection);
 				goto next;
 			}
-*/
 
 			on_cmd("retry") {
                                 if (bbs->hops >= blastbeat.max_hops) {
