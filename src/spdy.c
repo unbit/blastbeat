@@ -581,7 +581,8 @@ static int bb_manage_spdy_msg(struct bb_connection *bbc) {
 			break;
 		// SETTINGS
 		case 0x04:
-			fprintf(stderr,"SETTINGS FLAGS %d\n", ntohl(bbc->spdy_flags));	
+			// ignore settins (for now)
+			//fprintf(stderr,"SETTINGS FLAGS %d\n", ntohl(bbc->spdy_flags));	
 			break;
 		// PING
 		case 0x06:
