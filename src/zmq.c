@@ -37,7 +37,6 @@ routing:
 
 
 extern http_parser_settings bb_http_response_parser_settings;
-extern http_parser_settings bb_http_response_parser_settings2;
 
 static char *bb_get_route(char *buf, size_t len, size_t *rlen) {
 	while(len>0) {
@@ -171,23 +170,9 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 			int in_group = 1;
 
 			on_cmd("body") {
-                                if (!bbs->connection->spdy) {
-                                        if (bb_wq_push_copy(bbs->connection,zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]), 1)) {
-                                                bb_connection_close(bbs->connection);
-                                                goto next;
-                                        }
-                                        bbs->response.written_bytes += zmq_msg_size(&msg[2]);
-                                        // if Content-Length is specified, check it...
-                                        if (bbs->response.content_length != ULLONG_MAX && bbs->response.written_bytes >= bbs->response.content_length && bbs->response.close) {
-                                                if (bb_wq_push_close(bbs->connection))
-                                                        bb_connection_close(bbs->connection);
-                                        }
-                                }
-                                else {
-                                        if (bb_spdy_send_body(bbs, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3])))
-                                                bb_session_close(bbs);
-                                }
-                                goto next;
+				if (bbs->send_body(bbs, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3])))
+					bb_connection_close(bbs->connection);
+				goto next;
                         }
 
 			on_cmd("websocket") {
@@ -216,33 +201,16 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 
 
 			on_cmd("headers") {
-                                if (!bbs->connection->spdy) {
-                                        http_parser parser;
-                                        http_parser_init(&parser, HTTP_RESPONSE);
-                                        parser.data = bbs;
-                                        int res = http_parser_execute(&parser, &bb_http_response_parser_settings, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]));
-                                        // invalid headers ?
-                                        if (res != zmq_msg_size(&msg[3])) {
-                                                bb_connection_close(bbs->connection);
-                                                goto next;
-                                        }
-                                        if (bb_wq_push_copy(bbs->connection, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]), 1))
-                                                bb_connection_close(bbs->connection);
-                                }
-                                else {
-                                        // in SPDY mode we parse headers as a normal HTTP request (saving data)
-                                        http_parser_init(&bbs->response.parser, HTTP_RESPONSE);
-                                        bbs->response.parser.data = bbs;
-                                        int res = http_parser_execute(&bbs->response.parser, &bb_http_response_parser_settings2, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]));
-                                        // invalid headers ?
-                                        if (res != zmq_msg_size(&msg[3])) {
-                                                bb_session_close(bbs);
-                                                goto next;
-                                        }
-                                        if (bb_spdy_send_headers(bbs))
-                                                bb_session_close(bbs);
-                                }
-                                goto next;
+				bb_initialize_response(bbs);
+				size_t msg_len = zmq_msg_size(&msg[3]);
+				int res = http_parser_execute(&bbs->response.parser, &bb_http_response_parser_settings, zmq_msg_data(&msg[3]), msg_len);
+				if (res != msg_len) {
+					bb_connection_close(bbs->connection);
+					goto next;
+				}
+				if (bbs->send_headers(bbs, zmq_msg_data(&msg[3]), msg_len))
+					bb_connection_close(bbs->connection);
+				goto next;
                         }
 
 /*
@@ -319,6 +287,9 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
                         }
 
 			on_cmd("end") {
+				if (bbs->send_end(bbs))
+					bb_connection_close(bbs->connection);
+/*
 				if (!bbs->connection->spdy) {
                                 	if (bb_wq_push_close(bbs->connection)) {
                                         	bb_connection_close(bbs->connection);
@@ -329,7 +300,6 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
                                                 bb_session_close(bbs);
 						goto next;
 					}	
-/*
 					// clear the push request now
 					if (bbs->type == BLASTBEAT_TYPE_SPDY_PUSH) {
 						// free parsed headers	
@@ -354,7 +324,6 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 						free(bbsr);
 					}
 */
-				}
                                 goto next;
                         }
 

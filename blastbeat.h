@@ -140,6 +140,7 @@ struct bb_session;
 struct bb_session_entry;
 
 struct bb_request {
+	int initialized;
 	int type;
 	// the joyent http_parser
 	http_parser parser;
@@ -170,8 +171,14 @@ struct bb_request {
 };
 
 struct bb_response {
+	int initialized;
 	// the joyent http_parser
         http_parser parser;
+	off_t header_pos;
+        // used by the header parser
+        int last_was_value;
+	// the list of headers (mus not allocate memory !!!)
+	struct bb_http_header headers[MAX_HEADERS];
 	uint64_t content_length;
 	uint64_t written_bytes;
 	int close;
@@ -185,6 +192,8 @@ struct bb_writer_item {
 	size_t len;
 	int free_it;
 	int close_it;
+	// the session generating the item
+	struct bb_session *session;
 	struct bb_writer_item *next;
 };
 
@@ -201,10 +210,13 @@ struct bb_connection {
         int fd;
         struct bb_reader reader;
 	struct bb_acceptor *acceptor;
+
+	int (*func)(struct bb_connection *, char *, size_t);
+
 	// ssl session
 	SSL *ssl;
-	int spdy;
 
+	int spdy;
 	z_stream spdy_z_in;
 	z_stream spdy_z_out;
 
@@ -243,7 +255,7 @@ struct bb_socketio_message {
 
 // a blastbeat session (in HTTP it is mapped to a connection, in SPDY it is mapped to a stream)
 struct bb_session {
-	// this is the uuid key splitten in 2 64bit numbers
+	// this is the uuid key split in 2 64bit numbers
 	uint64_t uuid_part1;
 	uint64_t uuid_part2;
 
@@ -255,6 +267,7 @@ struct bb_session {
 	// contains the virtualhost mapped to the session
 	struct bb_virtualhost *vhost;
 
+	// this is the death timer
 	struct bb_session_timer timer;
 
 	// persistent sessions can be re-called (useful for socket.io in xhr-polling)
@@ -290,6 +303,11 @@ struct bb_session {
 
 	// subscribed group list
 	struct bb_session_group *groups;
+
+	// hooks
+	int (*send_headers)(struct bb_session *, char *, size_t);
+	int (*send_end)(struct bb_session *);
+	int (*send_body)(struct bb_session *, char *, size_t);
 };
 
 struct bb_session_entry {
@@ -382,9 +400,11 @@ void bb_sht_remove(struct bb_session *);
 void bb_sht_add(struct bb_session *);
 
 void bb_wq_callback(struct ev_loop *, struct ev_io *, int);
-int bb_wq_push(struct bb_connection *, char *, size_t, int);
-int bb_wq_push_copy(struct bb_connection *, char *, size_t, int);
-int bb_wq_push_close(struct bb_connection *);
+int bb_wq_push(struct bb_session *, char *, size_t, int);
+int bb_wq_push_copy(struct bb_session *, char *, size_t, int);
+int bb_wq_push_close(struct bb_session *);
+int bb_wq_push_eos(struct bb_session *);
+int bb_wq_dumb_push(struct bb_connection *, char *, size_t, int);
 
 ssize_t bb_http_read(struct bb_connection *, char *, size_t);
 ssize_t bb_http_write(struct bb_connection *, char *, size_t);
@@ -415,14 +435,20 @@ int bb_send_websocket_handshake(struct bb_session *);
 int bb_websocket_reply(struct bb_session *, char *, size_t);
 
 int bb_manage_spdy(struct bb_connection *, char *, ssize_t);
-int bb_spdy_send_body(struct bb_session *, char *, size_t);
-int bb_spdy_send_headers(struct bb_session *);
 int bb_spdy_push_headers(struct bb_session *);
 
 int bb_join_group(struct bb_session *, char *, size_t);
 int bb_session_leave_group(struct bb_session *, struct bb_group *);
 struct bb_group *bb_ght_get(struct bb_virtualhost *, char *, size_t);
 
+void bb_initialize_request(struct bb_session *);
+void bb_initialize_response(struct bb_session *);
+
 int bb_manage_socketio(struct bb_session *);
 int bb_socketio_push(struct bb_session *, char, char *, size_t);
 int bb_socketio_send(struct bb_session *, char *, size_t);
+
+int bb_http_func(struct bb_connection *, char *, size_t);
+int bb_http_send_headers(struct bb_session *, char *, size_t);
+int bb_http_send_end(struct bb_session *);
+int bb_http_send_body(struct bb_session *, char *, size_t);

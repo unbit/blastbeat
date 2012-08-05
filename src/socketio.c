@@ -44,12 +44,12 @@ int bb_manage_socketio(struct bb_session *bbs) {
 		bbs->request.http_major = '0' + bbs->request.parser.http_major;
         	bbs->request.http_minor = '0' + bbs->request.parser.http_minor;
 
-        	if (bb_wq_push(bbs->connection, "HTTP/", 5, 0)) return -1;
-        	if (bb_wq_push(bbs->connection, &bbs->request.http_major, 1, 0)) return -1;
-        	if (bb_wq_push(bbs->connection, ".", 1, 0)) return -1;
-        	if (bb_wq_push(bbs->connection, &bbs->request.http_minor, 1, 0)) return -1;
-        	if (bb_wq_push(bbs->connection, (char *)hs_headers, strlen(hs_headers), 0)) return -1;
-        	if (bb_wq_push_copy(bbs->connection, handshake, 54, 1)) return -1;
+        	if (bb_wq_push(bbs, "HTTP/", 5, 0)) return -1;
+        	if (bb_wq_push(bbs, &bbs->request.http_major, 1, 0)) return -1;
+        	if (bb_wq_push(bbs, ".", 1, 0)) return -1;
+        	if (bb_wq_push(bbs, &bbs->request.http_minor, 1, 0)) return -1;
+        	if (bb_wq_push(bbs, (char *)hs_headers, strlen(hs_headers), 0)) return -1;
+        	if (bb_wq_push_copy(bbs, handshake, 54, 1)) return -1;
 
 		// mark the session as persistent
 		bbs->persistent = 1;
@@ -80,14 +80,14 @@ int bb_manage_socketio(struct bb_session *bbs) {
 			bbs->request.http_major = '0' + bbs->request.parser.http_major;
         		bbs->request.http_minor = '0' + bbs->request.parser.http_minor;
 
-			if (bb_wq_push(bbs->connection, "HTTP/", 5, 0)) return -1;
-                	if (bb_wq_push(bbs->connection, &bbs->request.http_major, 1, 0)) return -1;
-                	if (bb_wq_push(bbs->connection, ".", 1, 0)) return -1;
-                	if (bb_wq_push(bbs->connection, &bbs->request.http_minor, 1, 0)) return -1;
+			if (bb_wq_push(bbs, "HTTP/", 5, 0)) return -1;
+                	if (bb_wq_push(bbs, &bbs->request.http_major, 1, 0)) return -1;
+                	if (bb_wq_push(bbs, ".", 1, 0)) return -1;
+                	if (bb_wq_push(bbs, &bbs->request.http_minor, 1, 0)) return -1;
 
 			const char *connected = " 200 OK\r\nConnection: close\r\nContent-Type: text/plain\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Credentials: true\r\nAccess-Control-Allow-Methods: POST, GET, OPTIONS\r\nAccess-Control-Max-Age: 3600\r\nContent-Length: 1\r\n\r\n1";
-			if (bb_wq_push(bbs->connection, (char *)connected, strlen(connected), 0)) return -1;
-			if (bb_wq_push_close(bbs->connection)) return -1;	
+			if (bb_wq_push(bbs, (char *)connected, strlen(connected), 0)) return -1;
+			if (bb_wq_push_close(bbs)) return -1;	
 			if (bbs->request.parser.content_length != ULLONG_MAX && bbs->request.parser.content_length > 0) {
 				//bbs->sio_bbs = persistent_bbs;
 				bbs->request.no_uwsgi = 1;
@@ -170,14 +170,14 @@ ready:
 				bbs->request.http_major = '0' + bbs->request.parser.http_major;
         			bbs->request.http_minor = '0' + bbs->request.parser.http_minor;
 
-				if (bb_wq_push(bbs->connection, "HTTP/", 5, 0)) return -1;
-                		if (bb_wq_push(bbs->connection, &bbs->request.http_major, 1, 0)) return -1;
-                		if (bb_wq_push(bbs->connection, ".", 1, 0)) return -1;
-                		if (bb_wq_push(bbs->connection, &bbs->request.http_minor, 1, 0)) return -1;
+				if (bb_wq_push(bbs, "HTTP/", 5, 0)) return -1;
+                		if (bb_wq_push(bbs, &bbs->request.http_major, 1, 0)) return -1;
+                		if (bb_wq_push(bbs, ".", 1, 0)) return -1;
+                		if (bb_wq_push(bbs, &bbs->request.http_minor, 1, 0)) return -1;
 
 				const char *connected = " 200 OK\r\nConnection: close\r\nContent-Type: text/plain; charset=UTF-8\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Credentials: true\r\nAccess-Control-Allow-Methods: POST, GET, OPTIONS\r\nAccess-Control-Max-Age: 3600\r\nContent-Length: 3\r\n\r\n1::";
-				if (bb_wq_push(bbs->connection, (char *)connected, strlen(connected), 0)) return -1;
-				if (bb_wq_push_close(bbs->connection)) return -1;	
+				if (bb_wq_push(bbs, (char *)connected, strlen(connected), 0)) return -1;
+				if (bb_wq_push_close(bbs)) return -1;	
 				bbs->sio_connected = 1;
 				// start the sio_timer
 				// the first ping is after 1 second
@@ -203,16 +203,16 @@ int bb_socketio_send(struct bb_session *bbs, char *buf, size_t len) {
 	bbs->request.http_major = '0' + bbs->request.parser.http_major;
         bbs->request.http_minor = '0' + bbs->request.parser.http_minor;
 
-        if (bb_wq_push(bbs->connection, "HTTP/", 5, 0)) return -1;
-        if (bb_wq_push(bbs->connection, &bbs->request.http_major, 1, 0)) return -1;
-        if (bb_wq_push(bbs->connection, ".", 1, 0)) return -1;
-        if (bb_wq_push(bbs->connection, &bbs->request.http_minor, 1, 0)) return -1;
+        if (bb_wq_push(bbs, "HTTP/", 5, 0)) return -1;
+        if (bb_wq_push(bbs, &bbs->request.http_major, 1, 0)) return -1;
+        if (bb_wq_push(bbs, ".", 1, 0)) return -1;
+        if (bb_wq_push(bbs, &bbs->request.http_minor, 1, 0)) return -1;
 
 
-	if (bb_wq_push(bbs->connection, (char *)headers, strlen(headers), 0)) return -1;
-	if (bb_wq_push(bbs->connection, (char *)cl, chunk_len, 1)) return -1;
+	if (bb_wq_push(bbs, (char *)headers, strlen(headers), 0)) return -1;
+	if (bb_wq_push(bbs, (char *)cl, chunk_len, 1)) return -1;
 
-	if (bb_wq_push(bbs->connection, (char *)buf, len, 1)) return -1;
+	if (bb_wq_push(bbs, (char *)buf, len, 1)) return -1;
 
 	return 0;
 }

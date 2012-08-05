@@ -1,5 +1,12 @@
 #include "../blastbeat.h"
 
+// websocket request spawns from http one
+int bb_websocket_func(struct bb_connection *bbc, char *buf, size_t len) {
+	// remember: in HTTP mode, only one session is allowed
+	return bb_manage_websocket(bbc->sessions_head, buf, len);
+}
+
+
 static char *base64(char *str, size_t *len) {
 	char *buf = NULL;
         BIO *b64, *bmem;

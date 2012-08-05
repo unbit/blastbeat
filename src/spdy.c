@@ -27,6 +27,12 @@ const char spdy_dictionary[] =
 	"ation/xhtmltext/plainpublicmax-agecharset=iso-8859-1utf-8gzipdeflateHTTP/1"
 	".1statusversionurl";
 
+int bb_spdy_func(struct bb_connection *bbc, char *buf, size_t len) {
+        // remember: in HTTP mode, only one session is allowed
+        return bb_manage_spdy(bbc, buf, len);
+}
+
+
 void bb_ssl_info_cb(SSL const *ssl, int where, int ret) {
         if (where & SSL_CB_HANDSHAKE_DONE) {
 #ifdef OPENSSL_NPN_UNSUPPORTED
@@ -55,6 +61,8 @@ void bb_ssl_info_cb(SSL const *ssl, int where, int ret) {
 				bb_connection_close(bbc);
 				return;
 			}
+			// set the parser hook
+			bbc->func = bb_spdy_func;
                 }
 #else
 #warning OLD OpenSSL detected, SPDY support will not be enabled
@@ -304,17 +312,17 @@ int bb_spdy_push_headers(struct bb_session *bbs) {
         return 0;
 }
 
-int bb_spdy_send_headers(struct bb_session *bbs) {
+static int bb_spdy_send_headers(struct bb_session *bbs, char *unused_buf, size_t len) {
 	int i;
 	// calculate the destination buffer size
 	// zzzzzzzzzzzzzzZZXXstatusXXyyyXXversionXXyyyyyyyy
 	// transform all of the headers keys to lowercase
 	size_t spdy_len = 48;
-	for(i=1;i<=bbs->request.header_pos;i++) {
-		spdy_len += 2 + bbs->request.headers[i].keylen + 2 + bbs->request.headers[i].vallen;
+	for(i=1;i<=bbs->response.header_pos;i++) {
+		spdy_len += 2 + bbs->response.headers[i].keylen + 2 + bbs->response.headers[i].vallen;
 		size_t j;
-		for(j=0;j<bbs->request.headers[i].keylen;j++) {
-			bbs->request.headers[i].key[j] = tolower((int) bbs->request.headers[i].key[j]);
+		for(j=0;j<bbs->response.headers[i].keylen;j++) {
+			bbs->response.headers[i].key[j] = tolower((int) bbs->response.headers[i].key[j]);
 		}
 	}	
 
@@ -323,7 +331,7 @@ int bb_spdy_send_headers(struct bb_session *bbs) {
 		bb_error("malloc()");
 		return -1;
 	}
-	
+
 	// SYN_REPLY
 	buf[0] = 0x80;
 	buf[1] = 0x02;
@@ -344,7 +352,7 @@ int bb_spdy_send_headers(struct bb_session *bbs) {
 	buf[13] = 0x00;
 
 	// set the number of headers
-	uint16_t hlen = htons(bbs->request.header_pos+2);
+	uint16_t hlen = htons(bbs->response.header_pos+2);
 	memcpy(buf+14, &hlen, 2);
 
 	char *ptr = buf+16;
@@ -353,9 +361,9 @@ int bb_spdy_send_headers(struct bb_session *bbs) {
 	memcpy(ptr, "status", 6); ptr+=6;
 	slen = htons(3);
 	memcpy(ptr, &slen, 2); ptr+=2;
-	*ptr++ = (bbs->request.parser.status_code/100) + '0';
-	*ptr++ = ((bbs->request.parser.status_code%100)/10) + '0';
-	*ptr++ = ((bbs->request.parser.status_code%100)%10) + '0';
+	*ptr++ = (bbs->response.parser.status_code/100) + '0';
+	*ptr++ = ((bbs->response.parser.status_code%100)/10) + '0';
+	*ptr++ = ((bbs->response.parser.status_code%100)%10) + '0';
 
 	slen = htons(7);
 	memcpy(ptr, &slen, 2); ptr+=2;
@@ -363,22 +371,22 @@ int bb_spdy_send_headers(struct bb_session *bbs) {
 
 	slen = htons(8);
 	char proto[9];
-        if (snprintf(proto, 9, "HTTP/%d.%d", bbs->request.parser.http_major, bbs->request.parser.http_minor) != 8) {
+        if (snprintf(proto, 9, "HTTP/%d.%d", bbs->response.parser.http_major, bbs->response.parser.http_minor) != 8) {
                 return -1;
         }
 	memcpy(ptr, &slen, 2); ptr+=2;
 	memcpy(ptr, proto, 8); ptr+=8;	
 
 	// generate spdy headers from respons headers
-	for(i=1;i<=bbs->request.header_pos;i++) {
-		slen = htons(bbs->request.headers[i].keylen);
+	for(i=1;i<=bbs->response.header_pos;i++) {
+		slen = htons(bbs->response.headers[i].keylen);
 		memcpy(ptr, &slen, 2); ptr += 2;
-		memcpy(ptr, bbs->request.headers[i].key, bbs->request.headers[i].keylen);
-		ptr += bbs->request.headers[i].keylen;
-		slen = htons(bbs->request.headers[i].vallen);
+		memcpy(ptr, bbs->response.headers[i].key, bbs->response.headers[i].keylen);
+		ptr += bbs->response.headers[i].keylen;
+		slen = htons(bbs->response.headers[i].vallen);
 		memcpy(ptr, &slen, 2); ptr += 2;
-		memcpy(ptr, bbs->request.headers[i].value, bbs->request.headers[i].vallen);
-		ptr += bbs->request.headers[i].vallen;
+		memcpy(ptr, bbs->response.headers[i].value, bbs->response.headers[i].vallen);
+		ptr += bbs->response.headers[i].vallen;
 	}
 
 	size_t ch_len = 0;
@@ -391,18 +399,18 @@ int bb_spdy_send_headers(struct bb_session *bbs) {
 	void *ll = &l;
 	memcpy(buf+5, ll+1, 3);
 
-	if (bb_wq_push(bbs->connection, buf, 14, 1)) {
+	if (bb_wq_push(bbs, buf, 14, 1)) {
 		return -1;
 	}
 
-	if (bb_wq_push(bbs->connection, compresses_headers, ch_len, 1)) {
+	if (bb_wq_push(bbs, compresses_headers, ch_len, 1)) {
 		return -1;
 	}
 	
 	return 0;
 }
 
-int bb_spdy_send_body(struct bb_session *bbs, char *buf, size_t len) {
+static int bb_spdy_send_body(struct bb_session *bbs, char *buf, size_t len) {
 	int ret = 0;
 	uint32_t stream_id;
 	char *spdy = malloc(len + 8);
@@ -414,14 +422,14 @@ int bb_spdy_send_body(struct bb_session *bbs, char *buf, size_t len) {
 	uint32_t stream_id = htonl(1);
 	stream_id = (stream_id >> 1) & 0x7fffffff;
 	memcpy(spdy, &stream_id, 4);
-*/
-	if (bbs->request.type == BLASTBEAT_TYPE_SPDY_PUSH) {
+	if (bbs->response.type == BLASTBEAT_TYPE_SPDY_PUSH) {
 		//stream_id = htonl(bbsr->spdy_even_stream_id);
 		stream_id = 0;
 	}
 	else {
+*/
 		stream_id = htonl(bbs->stream_id);
-	}
+//	}
 	memcpy(spdy, &stream_id, 4);
 	if (len > 0) {
 		spdy[4] = 0;
@@ -429,12 +437,14 @@ int bb_spdy_send_body(struct bb_session *bbs, char *buf, size_t len) {
 	else {
 		// end of the stream
 		spdy[4] = 0x01;
+/*
 		if (bbs->request.type == BLASTBEAT_TYPE_SPDY_PUSH) {
 			ret = 0;
 		}
 		else {
-			ret = 1;
-		}
+*/
+			//ret = 1;
+//		}
 	}
 
 	uint32_t stream_length = htonl(len);
@@ -442,13 +452,17 @@ int bb_spdy_send_body(struct bb_session *bbs, char *buf, size_t len) {
 	memcpy(spdy+5, sl+1, 3);
 	memcpy(spdy + 8, buf, len);
 
-	if (bb_wq_push(bbs->connection, spdy, len+8, 1)) {
+	if (bb_wq_push(bbs, spdy, len+8, 1)) {
 		return -1;
 	}
 
 	return ret;
 }
 
+static int bb_spdy_send_end(struct bb_session *bbs) {
+	if (bb_spdy_send_body(bbs, "", 0)) return -1;
+	return bb_wq_push_eos(bbs);
+}
 
 static int bb_spdy_inflate(struct bb_session *bbs, char *buf, size_t len) {
 
@@ -525,10 +539,17 @@ static int bb_manage_spdy_msg(struct bb_connection *bbc) {
 			memcpy(&bbc->spdy_stream_id, bbc->spdy_body_buf, 4);
 			bbc->spdy_stream_id = ntohl(bbc->spdy_stream_id);
 			struct bb_session *bbs = bb_session_new(bbc);
+			if (!bbs) return -1;
+			// set the SPDY2 hooks
+			bbs->send_headers = bb_spdy_send_headers;
+			bbs->send_end = bb_spdy_send_end;
+			bbs->send_body = bb_spdy_send_body;
+
 			bbs->stream_id = bbc->spdy_stream_id;
 			if (bb_spdy_inflate(bbs, bbc->spdy_body_buf, bbc->spdy_length)) {
 				return -1;
 			}
+			// check for dealer as the host: header could be missing !!!
 			if (!bbs->dealer) return -1;
 			bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "uwsgi", 5, bbs->request.uwsgi_buf, bbs->request.uwsgi_pos);
 			break;
@@ -536,6 +557,10 @@ static int bb_manage_spdy_msg(struct bb_connection *bbc) {
 		case 0x03:
 			memcpy(&bbc->spdy_stream_id, bbc->spdy_body_buf, 4);
 			fprintf(stderr,"RESET THE STREAM %d\n", ntohl(bbc->spdy_stream_id));	
+			break;
+		// SETTINGS
+		case 0x04:
+			fprintf(stderr,"SETTINGS FLAGS %d\n", ntohl(bbc->spdy_flags));	
 			break;
 		// PING
 		case 0x06:
@@ -546,7 +571,7 @@ static int bb_manage_spdy_msg(struct bb_connection *bbc) {
 			}
 			memcpy(pong, "\x80\x02\x00\x06\x00\x00\x00\x04", 8);
 			memcpy(pong + 8, bbc->spdy_body_buf, 4);
-			if (bb_wq_push(bbc, pong, 12, 1)) {
+			if (bb_wq_dumb_push(bbc, pong, 12, 1)) {
 				free(pong);
                 		return -1;
         		}			

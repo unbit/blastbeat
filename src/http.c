@@ -1,5 +1,63 @@
 #include "../blastbeat.h"
 
+http_parser_settings bb_http_parser_settings;
+
+int bb_http_func(struct bb_connection *bbc, char *buf, size_t len) {
+	// in HTTP connections, only one session is allowed
+	if (!bbc->sessions_head) {
+		bbc->sessions_head = bb_session_new(bbc);
+	}
+	struct bb_session *bbs = bbc->sessions_head;
+	if (!bbs) return -1;
+
+	if (!bbs->request.initialized)
+		bb_initialize_request(bbs);
+
+	int res = http_parser_execute(&bbs->request.parser, &bb_http_parser_settings, buf, len);
+	if (res != len) return -1;
+	return 0;
+}
+
+int bb_http_send_headers(struct bb_session *bbs, char *buf, size_t len) {
+	return bb_wq_push_copy(bbs, buf, len, 1);
+}
+
+int bb_http_send_end(struct bb_session *bbs) {
+	return bb_wq_push_close(bbs);
+}
+
+int bb_http_send_body(struct bb_session *bbs, char *buf, size_t len) {
+	if (bb_wq_push_copy(bbs, buf, len, 1))
+		return -1;
+	bbs->response.written_bytes += len;
+	if (bbs->response.content_length != ULLONG_MAX &&
+		bbs->response.written_bytes >= bbs->response.content_length &&
+		bbs->response.close)
+        	return bb_wq_push_close(bbs);
+	return 0;
+}
+
+ssize_t bb_http_read(struct bb_connection *bbc, char *buf, size_t len) {
+        return read(bbc->fd, buf, len);
+}
+
+ssize_t bb_http_write(struct bb_connection *bbc, char *buf, size_t len) {
+        return write(bbc->fd, buf, len);
+}
+
+
+struct bb_http_header *bb_http_req_header(struct bb_session *bbs, char *key, size_t keylen) {
+        off_t i;
+        for(i=1;i<=bbs->request.header_pos;i++) {
+                if (!bb_stricmp(key, keylen, bbs->request.headers[i].key, bbs->request.headers[i].keylen)) {
+                        return &bbs->request.headers[i];
+                }
+        }
+
+        return NULL;
+}
+
+
 int bb_manage_chunk(struct bb_session *bbs, char *buf, size_t len) {
 	char *chunk = malloc(MAX_CHUNK_STORAGE);
         if (!chunk) {
@@ -9,11 +67,11 @@ int bb_manage_chunk(struct bb_session *bbs, char *buf, size_t len) {
         }
         int chunk_len = snprintf(chunk, MAX_CHUNK_STORAGE, "%X\r\n", (unsigned int) len);
 
-        if (bb_wq_push(bbs->connection, chunk, chunk_len, 1)) goto end;
-        if (bb_wq_push_copy(bbs->connection, buf, len, 1)) goto end;
-        if (bb_wq_push(bbs->connection, "\r\n", 2, 0)) goto end;
+        if (bb_wq_push(bbs, chunk, chunk_len, 1)) goto end;
+        if (bb_wq_push_copy(bbs, buf, len, 1)) goto end;
+        if (bb_wq_push(bbs, "\r\n", 2, 0)) goto end;
         if (len == 0 && bbs->response.close) {
-        	if (bb_wq_push_close(bbs->connection)) goto end;
+        	if (bb_wq_push_close(bbs)) goto end;
 	}
 	return 0;
 end:
@@ -77,6 +135,34 @@ static int header_value_cb(http_parser *parser, const char *buf, size_t len) {
         bbs->request.last_was_value = 1;
         return 0;
 }
+
+static int header_ptr_field_cb(http_parser *parser, const char *buf, size_t len) {
+        struct bb_session *bbs = (struct bb_session *) parser->data;
+        if (bbs->response.last_was_value) {
+                bbs->response.header_pos++;
+                bbs->response.headers[bbs->response.header_pos].key = (char *) buf;
+                bbs->response.headers[bbs->response.header_pos].keylen = len;
+        }
+        else {
+                bbs->response.headers[bbs->response.header_pos].keylen += len;
+        }
+        bbs->response.last_was_value = 0;
+        return 0;
+}
+
+static int header_ptr_value_cb(http_parser *parser, const char *buf, size_t len) {
+        struct bb_session *bbs = (struct bb_session *) parser->data;
+        if (!bbs->response.last_was_value) {
+                bbs->response.headers[bbs->response.header_pos].value = (char *) buf;
+                bbs->response.headers[bbs->response.header_pos].vallen = len;
+        }
+        else {
+                bbs->response.headers[bbs->response.header_pos].vallen += len;
+        }
+        bbs->response.last_was_value = 1;
+        return 0;
+}
+
 
 static int body_cb(http_parser *parser, const char *buf, size_t len) {
         struct bb_session *bbs = (struct bb_session *) parser->data;
@@ -279,20 +365,8 @@ http_parser_settings bb_http_response_parser_settings = {
         .on_message_begin = null_cb,
         .on_message_complete = null_cb,
         .on_headers_complete = response_headers_complete,
-        .on_header_field = null_b_cb,
-        .on_header_value = null_b_cb,
+        .on_header_field = header_ptr_field_cb,
+        .on_header_value = header_ptr_value_cb,
         .on_url = null_b_cb,
         .on_body = null_b_cb,
 };
-
-http_parser_settings bb_http_response_parser_settings2 = {
-        .on_message_begin = null_cb,
-        .on_message_complete = null_cb,
-        .on_headers_complete = null_cb,
-        .on_header_field = header_field_cb,
-        .on_header_value = header_value_cb,
-        .on_url = null_b_cb,
-        .on_body = null_b_cb,
-};
-
-
