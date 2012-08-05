@@ -1,7 +1,7 @@
 The BlastBeat server
 =========
 
-BlastBeat is an high-performance HTTP/HTTPS/SPDY proxy for new generation web apps (websockets, comet...).
+BlastBeat is an high-performance HTTP/HTTPS/SPDY proxy for new generation web apps (websockets, socket.io, comet...).
 
 It seats on front of your apps and will forward requests to them via a simple ZeroMQ protocol.
 
