@@ -47,6 +47,10 @@ Commands in development/study/analysis
 
 * **timeout** (auto-close session after inactivity)
 
+* **timer** (create a recurring timer)
+
+* **oneshot** (create a oneshot timer)
+
 * **goaway** (SPDY-friendly connection interruption)
 
 * **auth** (stronger authentication for dealers)
