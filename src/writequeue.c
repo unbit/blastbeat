@@ -15,7 +15,7 @@ extern struct blastbeat_server blastbeat;
 	The offset in each item is required for managing incomplete writes
 
 */
-static int wq_push(struct bb_writer *bbw, char *buf, size_t len, int free_it, int close_it, struct bb_session *bbs) {
+static int wq_push(struct bb_writer *bbw, char *buf, size_t len, int flags, struct bb_session *bbs) {
 
 	struct bb_writer_item *bbwi = malloc(sizeof(struct bb_writer_item));
 	if (!bbwi) {
@@ -26,8 +26,7 @@ static int wq_push(struct bb_writer *bbw, char *buf, size_t len, int free_it, in
 	bbwi->buf = buf;
 	bbwi->pos = 0;
 	bbwi->len = len;
-	bbwi->free_it = free_it;
-	bbwi->close_it = close_it;
+	bbwi->flags = flags;
 	bbwi->session = bbs;
 	bbwi->next = NULL;
 
@@ -51,7 +50,7 @@ static void wq_decapitate(struct bb_writer *bbw) {
 		bbw->tail = NULL;
 		bbw->head = NULL;
 	}
-	if (head->free_it && head->len > 0) {
+	if ((head->flags & BB_WQ_FREE) && head->len > 0) {
 		free(head->buf);
 	}
 	free(head);
@@ -62,8 +61,8 @@ void bb_wq_callback(struct ev_loop *loop, struct ev_io *w, int revents) {
 	struct bb_connection *bbc = bbw->connection;
 	struct bb_writer_item *bbwi = bbw->head;
 	while(bbwi) {
-		if (bbwi->close_it == 1) goto end;
-		if (bbwi->close_it == 2) goto end2;
+		if (bbwi->flags & BB_WQ_CLOSE) goto end;
+		if (bbwi->flags & BB_WQ_EOS) goto end2;
 		if (bbwi->len == 0) goto next;
 		ssize_t wlen = bbc->acceptor->write(bbc, bbwi->buf+bbwi->pos, bbwi->len-bbwi->pos);
 		if (wlen < 0) {
@@ -91,29 +90,29 @@ end:
 	bb_connection_close(bbc);
 	return;
 end2:
-	fprintf(stderr,"C L O S I N G %p\n", bbwi->session);
+	// close the session (remember to decapitate, as other session will continue pushing)
 	wq_decapitate(bbw);
 	bb_session_close(bbwi->session);
 }
 
 
 
-int bb_wq_push(struct bb_session *bbs, char *buf, size_t len, int free_it) {
+int bb_wq_push(struct bb_session *bbs, char *buf, size_t len, int flags) {
 
 	struct bb_connection *bbc = bbs->connection;
 	if (!bbc) return -1;
 
-	if (wq_push(&bbc->writer, buf, len, free_it, 0, bbs)) return -1;
+	if (wq_push(&bbc->writer, buf, len, flags, bbs)) return -1;
 	// an item has been pushed, start the ev_io
 	ev_io_start(blastbeat.loop, &bbc->writer.writer);
 	return 0;
 }
 
-int bb_wq_dumb_push(struct bb_connection *bbc, char *buf, size_t len, int free_it) {
+int bb_wq_dumb_push(struct bb_connection *bbc, char *buf, size_t len, int flags) {
 
         if (!bbc) return -1;
 
-        if (wq_push(&bbc->writer, buf, len, free_it, 0, NULL)) return -1;
+        if (wq_push(&bbc->writer, buf, len, flags, NULL)) return -1;
         // an item has been pushed, start the ev_io
         ev_io_start(blastbeat.loop, &bbc->writer.writer);
         return 0;
@@ -125,7 +124,7 @@ int bb_wq_push_close(struct bb_session *bbs) {
 	struct bb_connection *bbc = bbs->connection;
 	if (!bbc) return -1;
 
-	if (wq_push(&bbc->writer, NULL, 0, 0, 1, bbs)) return -1;
+	if (wq_push(&bbc->writer, NULL, 0, BB_WQ_CLOSE, bbs)) return -1;
 	// an item has been pushed, start the ev_io
 	ev_io_start(blastbeat.loop, &bbc->writer.writer);
 	return 0;
@@ -133,22 +132,20 @@ int bb_wq_push_close(struct bb_session *bbs) {
 
 int bb_wq_push_eos(struct bb_session *bbs) {
 
-	fprintf(stderr,"PUSH EOS\n");
-
 	struct bb_connection *bbc = bbs->connection;
         if (!bbc) return -1;
 
 	// persistent session cannot defer close
 	if (bbs->persistent) return -1;
 
-        if (wq_push(&bbc->writer, NULL, 0, 0, 2, bbs)) return -1;
+	if (wq_push(&bbc->writer, NULL, 0, BB_WQ_EOS, bbs)) return -1;
         // an item has been pushed, start the ev_io
         ev_io_start(blastbeat.loop, &bbc->writer.writer);
         return 0;
 }
 
 
-int bb_wq_push_copy(struct bb_session *bbs, char *buf, size_t len, int free_it) {
+int bb_wq_push_copy(struct bb_session *bbs, char *buf, size_t len, int flags) {
 
 	struct bb_connection *bbc = bbs->connection;
 	if (!bbc) return -1;
@@ -160,7 +157,7 @@ int bb_wq_push_copy(struct bb_session *bbs, char *buf, size_t len, int free_it) 
 	}
 	memcpy(new_buf, buf, len);
 
-	if (wq_push(&bbc->writer, new_buf, len, free_it, 0, bbs)) return -1;
+	if (wq_push(&bbc->writer, new_buf, len, flags, bbs)) return -1;
 	// an item has been pushed, start the ev_io
 	ev_io_start(blastbeat.loop, &bbc->writer.writer);
 	return 0;

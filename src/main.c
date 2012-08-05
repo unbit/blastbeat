@@ -42,13 +42,7 @@ void bb_session_close(struct bb_session *bbs) {
 
                 // if linked to a dealer, send a 'end' message
                 if (bbs->dealer && !bbs->quiet_death) {
-                        if (bbs->dealer > 0) {
-                                bbs->dealer->load--;
-                        }
-                        else {
-                                fprintf(stderr,"BUG IN DEALER LOAD MANAGEMENT\n");
-                        }
-                        fprintf(stderr,"END\n");
+                        bbs->dealer->load--;
                         bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "end", 3, "", 0);
                 }
         }
@@ -74,8 +68,17 @@ void bb_session_close(struct bb_session *bbs) {
 		free(bbs);
 }
 
+/*
+
+closing a connection means freeing/stopping the write queue and destroying all of the associated (non-persistent) sessions
+
+connection close is triggered:
+	when the client closes the connection
+	on network/protocol error
+	on non-HTTP/1.1 sessions end
+*/
+
 void bb_connection_close(struct bb_connection *bbc) {
-	fprintf(stderr,"closing connection...\n");
 	ev_io_stop(blastbeat.loop, &bbc->reader.reader);
 	ev_io_stop(blastbeat.loop, &bbc->writer.writer);
 	if (bbc->ssl) {
@@ -91,9 +94,6 @@ void bb_connection_close(struct bb_connection *bbc) {
 		deflateEnd(&bbc->spdy_z_out);
 	}
 
-	fprintf(stderr,"closing connection[1]...\n");
-
-
 	// close sessions	
 	struct bb_session *bbs = bbc->sessions_head;
 	while(bbs) {
@@ -101,21 +101,17 @@ void bb_connection_close(struct bb_connection *bbc) {
 		bbs = bbs->next;
 	}
 
-	fprintf(stderr,"closing connection[2]...\n");
-
 	// remove the writer queue
 	// no fear of it as the write callback is stopped
 	struct bb_writer_item *bbwi = bbc->writer.head;
 	while(bbwi) {
 		struct bb_writer_item *old_bbwi = bbwi;	
 		bbwi = bbwi->next;
-		if (old_bbwi->free_it && old_bbwi->len > 0) {
+		if ((old_bbwi->flags & BB_WQ_FREE) && old_bbwi->len > 0) {
 			free(old_bbwi->buf);
 		}
 		free(old_bbwi);
 	}
-
-	fprintf(stderr,"closing connection[3]...\n");
 
 	free(bbc);
 }

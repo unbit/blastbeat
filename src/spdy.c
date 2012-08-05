@@ -399,11 +399,11 @@ static int bb_spdy_send_headers(struct bb_session *bbs, char *unused_buf, size_t
 	void *ll = &l;
 	memcpy(buf+5, ll+1, 3);
 
-	if (bb_wq_push(bbs, buf, 14, 1)) {
+	if (bb_wq_push(bbs, buf, 14, BB_WQ_FREE)) {
 		return -1;
 	}
 
-	if (bb_wq_push(bbs, compresses_headers, ch_len, 1)) {
+	if (bb_wq_push(bbs, compresses_headers, ch_len, BB_WQ_FREE)) {
 		return -1;
 	}
 	
@@ -452,7 +452,7 @@ static int bb_spdy_send_body(struct bb_session *bbs, char *buf, size_t len) {
 	memcpy(spdy+5, sl+1, 3);
 	memcpy(spdy + 8, buf, len);
 
-	if (bb_wq_push(bbs, spdy, len+8, 1)) {
+	if (bb_wq_push(bbs, spdy, len+8, BB_WQ_FREE)) {
 		return -1;
 	}
 
@@ -571,7 +571,7 @@ static int bb_manage_spdy_msg(struct bb_connection *bbc) {
 			}
 			memcpy(pong, "\x80\x02\x00\x06\x00\x00\x00\x04", 8);
 			memcpy(pong + 8, bbc->spdy_body_buf, 4);
-			if (bb_wq_dumb_push(bbc, pong, 12, 1)) {
+			if (bb_wq_dumb_push(bbc, pong, 12, BB_WQ_FREE)) {
 				free(pong);
                 		return -1;
         		}			

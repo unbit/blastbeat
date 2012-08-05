@@ -19,7 +19,7 @@ int bb_http_func(struct bb_connection *bbc, char *buf, size_t len) {
 }
 
 int bb_http_send_headers(struct bb_session *bbs, char *buf, size_t len) {
-	return bb_wq_push_copy(bbs, buf, len, 1);
+	return bb_wq_push_copy(bbs, buf, len, BB_WQ_FREE);
 }
 
 int bb_http_send_end(struct bb_session *bbs) {
@@ -27,7 +27,7 @@ int bb_http_send_end(struct bb_session *bbs) {
 }
 
 int bb_http_send_body(struct bb_session *bbs, char *buf, size_t len) {
-	if (bb_wq_push_copy(bbs, buf, len, 1))
+	if (bb_wq_push_copy(bbs, buf, len, BB_WQ_FREE))
 		return -1;
 	bbs->response.written_bytes += len;
 	if (bbs->response.content_length != ULLONG_MAX &&
@@ -67,8 +67,8 @@ int bb_manage_chunk(struct bb_session *bbs, char *buf, size_t len) {
         }
         int chunk_len = snprintf(chunk, MAX_CHUNK_STORAGE, "%X\r\n", (unsigned int) len);
 
-        if (bb_wq_push(bbs, chunk, chunk_len, 1)) goto end;
-        if (bb_wq_push_copy(bbs, buf, len, 1)) goto end;
+        if (bb_wq_push(bbs, chunk, chunk_len, BB_WQ_FREE)) goto end;
+        if (bb_wq_push_copy(bbs, buf, len, BB_WQ_FREE)) goto end;
         if (bb_wq_push(bbs, "\r\n", 2, 0)) goto end;
         if (len == 0 && bbs->response.close) {
         	if (bb_wq_push_close(bbs)) goto end;

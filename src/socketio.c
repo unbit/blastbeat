@@ -49,7 +49,7 @@ int bb_manage_socketio(struct bb_session *bbs) {
         	if (bb_wq_push(bbs, ".", 1, 0)) return -1;
         	if (bb_wq_push(bbs, &bbs->request.http_minor, 1, 0)) return -1;
         	if (bb_wq_push(bbs, (char *)hs_headers, strlen(hs_headers), 0)) return -1;
-        	if (bb_wq_push_copy(bbs, handshake, 54, 1)) return -1;
+        	if (bb_wq_push_copy(bbs, handshake, 54, BB_WQ_FREE)) return -1;
 
 		// mark the session as persistent
 		bbs->persistent = 1;
@@ -210,9 +210,9 @@ int bb_socketio_send(struct bb_session *bbs, char *buf, size_t len) {
 
 
 	if (bb_wq_push(bbs, (char *)headers, strlen(headers), 0)) return -1;
-	if (bb_wq_push(bbs, (char *)cl, chunk_len, 1)) return -1;
+	if (bb_wq_push(bbs, (char *)cl, chunk_len, BB_WQ_FREE)) return -1;
 
-	if (bb_wq_push(bbs, (char *)buf, len, 1)) return -1;
+	if (bb_wq_push(bbs, (char *)buf, len, BB_WQ_FREE)) return -1;
 
 	return 0;
 }

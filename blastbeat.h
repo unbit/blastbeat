@@ -42,6 +42,11 @@
 
 #define BB_UUID_LEN	16
 
+// flags for the writequeue
+#define BB_WQ_FREE	(1 << 0)
+#define BB_WQ_CLOSE	(1 << 1)
+#define BB_WQ_EOS	(1 << 2)
+
 
 #define BLASTBEAT_TYPE_WEBSOCKET        1
 #define BLASTBEAT_TYPE_SPDY		2
@@ -190,8 +195,7 @@ struct bb_writer_item {
 	char *buf;
 	off_t pos;
 	size_t len;
-	int free_it;
-	int close_it;
+	int flags;
 	// the session generating the item
 	struct bb_session *session;
 	struct bb_writer_item *next;
