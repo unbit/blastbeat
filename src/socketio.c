@@ -93,7 +93,7 @@ int bb_manage_socketio(struct bb_session *bbs) {
 				bbs->request.no_uwsgi = 1;
 				// buffer following data
 				bbs->request.sio_post = 1;
-				bbs->quiet_death = 1;
+				bbs->stealth = 1;
 				return 0;
 			}
 			return -1;	
@@ -109,7 +109,7 @@ int bb_manage_socketio(struct bb_session *bbs) {
 		struct bb_connection *bbc = bbs->connection;
 		// close the current session but without freeing the request
 		//bbsr->do_not_free = 1;
-		bbs->quiet_death = 1;
+		bbs->stealth = 1;
                 // we can now clear the current session
 		bb_session_close(bbs);
 		// and map it to the new one

@@ -4,20 +4,16 @@ struct blastbeat_server blastbeat;
 
 /*
 
-	a session can be closed on I/O error
+	--- BlastBeat sessions ---
 
-*/
-
-/*
-
-a persistent connection is not removed from the hashtable, but a timer is
+a persistent session is not removed from the hashtable, but a timer is
 attached to it. The timer is reset whenever some kind of activity is triggered on the sessions.
 If the timeout expires, the sessions is definitely removed.
 
 PAY ATTENTION:
 
-persistent session can be without a related connection
-persistent session get the request/response datas cleared after each usage
+persistent sessions can be without a related connection
+persistent sessions get the request/response datas cleared after each usage
 
 */
 
@@ -36,7 +32,7 @@ void bb_session_close(struct bb_session *bbs) {
 		free(bbs->push_queue);
 	}
 
-        // remove groups
+        // remove groups (if not persistent)
         if (!bbs->persistent) {
                 struct bb_session_group *bbsg = bbs->groups;
                 while(bbsg) {
@@ -45,12 +41,15 @@ void bb_session_close(struct bb_session *bbs) {
                         bb_session_leave_group(bbs, current_bbsg->group);
                 }
 
-                // if linked to a dealer, send a 'end' message
-                if (bbs->dealer && !bbs->quiet_death) {
+                // if linked to a dealer (and not in stealth mode), send a 'end' message
+                if (bbs->dealer && !bbs->stealth) {
                         bbs->dealer->load--;
                         bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "end", 3, "", 0);
                 }
         }
+
+	// detaching the session for the related connection
+	if (!bbc) goto clear;
 
 	// first one ?
 	if (bbs == bbc->sessions_head) {
@@ -69,6 +68,8 @@ void bb_session_close(struct bb_session *bbs) {
 		bbs->conn_next->prev = bbs->conn_prev;
 	}
 
+clear:
+
 	if (!bbs->persistent)
 		free(bbs);
 }
@@ -84,16 +85,20 @@ connection close is triggered:
 */
 
 void bb_connection_close(struct bb_connection *bbc) {
+	// stop I/O
 	ev_io_stop(blastbeat.loop, &bbc->reader.reader);
 	ev_io_stop(blastbeat.loop, &bbc->writer.writer);
+	// clear SSL if required
 	if (bbc->ssl) {
 		// this should be better managed, but why wasting resources ?
 		// just ignore its return value
 		SSL_shutdown(bbc->ssl);
 		SSL_free(bbc->ssl);
 	}
+	// close the socket
 	close(bbc->fd);
 
+	// free SPDY resources
 	if (bbc->spdy) {
 		deflateEnd(&bbc->spdy_z_in);
 		deflateEnd(&bbc->spdy_z_out);
@@ -196,11 +201,11 @@ next:
 
 static void bb_rd_callback(struct ev_loop *loop, struct ev_io *w, int revents) {
 
-	char buf[8192];
+	char buf[BLASTBEAT_BUFSIZE];
 	ssize_t len;
 	struct bb_reader *bbr = (struct bb_reader *) w;
 	struct bb_connection *bbc = bbr->connection ;
-	len = bbc->acceptor->read(bbc, buf, 8192);
+	len = bbc->acceptor->read(bbc, buf, BLASTBEAT_BUFSIZE);
 	if (len > 0) {
 		if (bbc->func(bbc, buf, len)) goto clear;
 		return;
@@ -240,6 +245,7 @@ static void session_timer_cb(struct ev_loop *loop, struct ev_timer *w, int reven
 	//bb_connection_close(bbs->connection);
 }
 
+// each session has a request structure, this strcture can be cleared multiple times
 void bb_initialize_request(struct bb_session *bbs) {
 	size_t i;
 	// free already used resources
@@ -267,6 +273,7 @@ void bb_initialize_request(struct bb_session *bbs) {
 	bbs->request.initialized = 1;
 }
 
+// each session has a response structure, this strcture can be cleared multiple times
 void bb_initialize_response(struct bb_session *bbs) {
 	if (bbs->response.initialized) {
 		memset(&bbs->response, 0, sizeof(struct bb_response));
@@ -279,6 +286,7 @@ void bb_initialize_response(struct bb_session *bbs) {
 }
 
 
+// allocate a new session
 struct bb_session *bb_session_new(struct bb_connection *bbc) {
 	struct bb_session *bbs = malloc(sizeof(struct bb_session));
 	if (!bbs) {
@@ -312,6 +320,7 @@ struct bb_session *bb_session_new(struct bb_connection *bbc) {
 	return bbs;
 }
 
+// this callback create a new connection object
 static void bb_accept_callback(struct ev_loop *loop, struct ev_io *w, int revents) {
 	struct bb_acceptor *acceptor = (struct bb_acceptor *) w;
 	struct sockaddr_in sin;
@@ -346,6 +355,7 @@ static void bb_accept_callback(struct ev_loop *loop, struct ev_io *w, int revent
 	}
 	// set the HTTP parser by default
 	bbc->func = bb_http_func;
+
 	ev_io_init(&bbc->reader.reader, bb_rd_callback, client, EV_READ);
 	bbc->reader.connection = bbc;
 	ev_io_init(&bbc->writer.writer, bb_wq_callback, client, EV_WRITE);
@@ -354,10 +364,12 @@ static void bb_accept_callback(struct ev_loop *loop, struct ev_io *w, int revent
 	ev_io_start(loop, &bbc->reader.reader);
 }
 
+// currently it only prints the number of active sessions
 static void stats_cb(struct ev_loop *loop, struct ev_timer *w, int revents) {
 	fprintf(stderr,"active sessions: %llu\n", (unsigned long long) blastbeat.active_sessions);
 }
 
+// the healthcheck system
 static void pinger_cb(struct ev_loop *loop, struct ev_timer *w, int revents) {
 
 	struct bb_dealer *bbd = blastbeat.dealers;
@@ -640,7 +652,7 @@ int main(int argc, char *argv[]) {
 	ev_timer_init(&blastbeat.pinger, pinger_cb, 1.0, blastbeat.ping_freq);
         ev_timer_start(blastbeat.loop, &blastbeat.pinger);
 
-	// the first ping is after 1 second
+	// report stats every 60 seconds
 	ev_timer_init(&blastbeat.stats, stats_cb, 60.0, 60.0);
         ev_timer_start(blastbeat.loop, &blastbeat.stats);
 

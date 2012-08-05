@@ -62,21 +62,18 @@ int bb_manage_chunk(struct bb_session *bbs, char *buf, size_t len) {
 	char *chunk = malloc(MAX_CHUNK_STORAGE);
         if (!chunk) {
         	bb_error("unable to allocate memory for chunked response: malloc()");
-                bb_session_close(bbs);
 		return -1;
         }
         int chunk_len = snprintf(chunk, MAX_CHUNK_STORAGE, "%X\r\n", (unsigned int) len);
 
-        if (bb_wq_push(bbs, chunk, chunk_len, BB_WQ_FREE)) goto end;
-        if (bb_wq_push_copy(bbs, buf, len, BB_WQ_FREE)) goto end;
-        if (bb_wq_push(bbs, "\r\n", 2, 0)) goto end;
+        if (bb_wq_push(bbs, chunk, chunk_len, BB_WQ_FREE)) return -1;
+        if (bb_wq_push_copy(bbs, buf, len, BB_WQ_FREE)) return -1;
+        if (bb_wq_push(bbs, "\r\n", 2, 0)) return -1;
         if (len == 0 && bbs->response.close) {
-        	if (bb_wq_push_close(bbs)) goto end;
+        	if (bb_wq_push_close(bbs)) return -1;
 	}
+
 	return 0;
-end:
-	bb_session_close(bbs);
-	return -1;
 }
 
 static int url_cb(http_parser *parser, const char *buf, size_t len) {
@@ -345,7 +342,7 @@ static int bb_session_request_complete(http_parser *parser) {
 	} 
         if (http_should_keep_alive(parser)) {
                 // prepare for a new request
-		// TODO clear the current request
+		bb_initialize_request(bbs);
         }
         return 0;
 }

@@ -48,9 +48,7 @@
 #define BB_WQ_EOS	(1 << 2)
 
 
-#define BLASTBEAT_TYPE_WEBSOCKET        1
-#define BLASTBEAT_TYPE_SPDY		2
-#define BLASTBEAT_TYPE_SPDY_PUSH	3
+#define BLASTBEAT_BUFSIZE	8192
 
 #define BLASTBEAT_DEALER_OFF		0
 #define BLASTBEAT_DEALER_AVAILABLE	1
@@ -280,8 +278,8 @@ struct bb_session {
 
 	// persistent sessions can be re-called (useful for socket.io in xhr-polling)
 	int persistent;
-	// quiet death is for current session recovering a new one
-        int quiet_death;
+	// stealth sessions never touch dealers
+        int stealth;
 
 	// mark socket.io connection status
 	int sio_connected;
