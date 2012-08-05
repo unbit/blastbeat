@@ -576,8 +576,15 @@ static int bb_manage_spdy_msg(struct bb_connection *bbc) {
 		// RST
 		case 0x03:
 			memcpy(&bbc->spdy_stream_id, bbc->spdy_body_buf, 4);
+			// ignore resets of even stream (push)
+                        if ((ntohl(bbc->spdy_stream_id) % 2) == 0) break;
 			fprintf(stderr,"RESET THE STREAM %d\n", ntohl(bbc->spdy_stream_id));	
 			// TODO scan all of the connection-related sessions and close the required one
+                      	struct bb_session *active_stream = bbc->sessions_head;
+			while(active_stream) {
+				fprintf(stderr,"[connection %p] active SPDY stream %d\n", bbc, active_stream->stream_id);
+				active_stream = active_stream->next;
+			} 
 			break;
 		// SETTINGS
 		case 0x04:
