@@ -255,19 +255,12 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 					}
 				}
 				else {
-					struct bb_group *bbg = bb_ght_get(bbs->vhost, route, route_len);
-					if (!bbg) goto next;
-					struct bb_group_session *bbgs = bbg->sessions;
-					while(bbgs) {
-						// do not route messages to myself
-						if (bbgs->session != bbs) {
-							if (bbgs->session->dealer) {
-								bb_zmq_send_msg(bbgs->session->dealer->identity, bbgs->session->dealer->len,
-									(char *) &bbgs->session->uuid_part1, BB_UUID_LEN, "msg", 3, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]));
-							}
-						}
-						bbgs = bbgs->next;	
-					}
+					foreach_session_in_group
+						bb_zmq_send_msg(bbgs->session->dealer->identity, bbgs->session->dealer->len,
+							(char *) &bbgs->session->uuid_part1, BB_UUID_LEN, "msg", 3, zmq_msg_data(&msg[3]), msg_len);
+                                        end_foreach
+					bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len,
+                                        	(char *) &bbs->uuid_part1, BB_UUID_LEN, "msg", 3, zmq_msg_data(&msg[3]), msg_len);
 				}
 				goto next;
 			}
@@ -281,41 +274,6 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 			on_cmd("end") {
 				if (bbs->send_end(bbs))
 					bb_connection_close(bbs->connection);
-/*
-				if (!bbs->connection->spdy) {
-                                	if (bb_wq_push_close(bbs->connection)) {
-                                        	bb_connection_close(bbs->connection);
-                                	}
-				}
-				else {
-                                        if (bb_spdy_send_body(bbs, "", 0)) {
-                                                bb_session_close(bbs);
-						goto next;
-					}	
-					// clear the push request now
-					if (bbs->type == BLASTBEAT_TYPE_SPDY_PUSH) {
-						// free parsed headers	
-						for(i=1;i<=bbsr->header_pos;i++) {
-                                			free(bbsr->headers[i].key);
-                                			free(bbsr->headers[i].value);
-                        			}
-                        			if (bbsr->uwsgi_buf) {
-                                			free(bbsr->uwsgi_buf);
-                        			}
-                        			if (bbsr->websocket_message_queue) {
-                                			free(bbsr->websocket_message_queue);
-                        			}
-						// this never happens (for now)... just be sure...
-						if (bbs->requests_tail == bbs->requests_head) {
-							bbs->requests_head = NULL;
-						}
-						bbs->requests_tail = bbsr->prev;
-						if (bbs->requests_tail) {
-							bbs->requests_tail->next = NULL;
-						}
-						free(bbsr);
-					}
-*/
                                 goto next;
                         }
 
