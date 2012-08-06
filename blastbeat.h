@@ -124,6 +124,10 @@ struct bb_virtualhost {
 	uint32_t ght_size;
 	struct bb_group_entry *ght;
 
+	
+	uint64_t max_sessions;
+	uint64_t active_sessions;
+
 	char *ssl_certificate;
 	char *ssl_key;
 
@@ -273,9 +277,12 @@ struct bb_session {
 	// contains the virtualhost mapped to the session
 	struct bb_virtualhost *vhost;
 
+	// used for monitoring inactivity
+	time_t last_seen;
+
 	// this is the death timer
 	struct bb_session_timer timer;
-
+	
 	// persistent sessions can be re-called (useful for socket.io in xhr-polling)
 	int persistent;
 	// stealth sessions never touch dealers
@@ -367,13 +374,14 @@ struct blastbeat_server {
 	char *uid;
 	char *gid;
 
+	uint64_t max_sessions;
 	uint64_t active_sessions;
 
 	void *router;
 	int zmq_fd;
 	struct ev_loop *loop;
 
-	int max_fd;
+	uint64_t max_fd;
 
 	int ssl_initialized;
 	char *ssl_certificate;

@@ -43,7 +43,6 @@ void bb_session_close(struct bb_session *bbs) {
 
                 // if linked to a dealer (and not in stealth mode), send a 'end' message
                 if (bbs->dealer && !bbs->stealth) {
-                        bbs->dealer->load--;
                         bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "end", 3, "", 0);
                 }
         }
@@ -188,8 +187,16 @@ next:
 		
 			if (best_dealer) {
 				best_dealer->load++;
-				bbs->dealer = best_dealer;
 				bbs->vhost = vhost->vhost;
+				// increase only if it is not a moving session
+				if (!bbs->dealer) {
+					if (bbs->vhost->max_sessions > 0 && bbs->vhost->active_sessions+1 > bbs->vhost->max_sessions) {
+						fprintf(stderr,"!!! maximum number of sessions (%llu) for virtualhost \"%.*s\" reached !!!\n", (unsigned long long) bbs->vhost->max_sessions, (int) bbs->vhost->len, bbs->vhost->name);
+						return -1;
+					}
+					bbs->vhost->active_sessions++;
+				}
+				bbs->dealer = best_dealer;
 				return 0;
 			}
 			return -1;
@@ -288,6 +295,10 @@ void bb_initialize_response(struct bb_session *bbs) {
 
 // allocate a new session
 struct bb_session *bb_session_new(struct bb_connection *bbc) {
+	if (blastbeat.active_sessions+1 > blastbeat.max_sessions) {
+		fprintf(stderr,"!!! maximum number of total sessions (%llu) reached !!!\n", (unsigned long long) blastbeat.max_sessions);
+		return NULL;
+	}
 	struct bb_session *bbs = malloc(sizeof(struct bb_session));
 	if (!bbs) {
 		bb_error("malloc()");
@@ -584,6 +595,7 @@ int main(int argc, char *argv[]) {
 	blastbeat.uid = "nobody";
 	blastbeat.gid = "nogroup";
 	blastbeat.max_hops = 10;
+	blastbeat.max_sessions = 10000;
 	bb_ini_config(argv[1]);
 
 	// validate config
@@ -600,12 +612,28 @@ int main(int argc, char *argv[]) {
 	// fix acceptors/vhosts
 	bb_acceptors_fix();
 
+	fprintf(stderr,"*** starting BlastBeat ***\n");
+
 	struct rlimit rl;
 	if (getrlimit(RLIMIT_NOFILE, &rl)) {
-		bb_error_exit("unable to get the maximum file descriptors number: getrlimit()");
+		bb_error("unable to get the maximum file descriptors number: getrlimit()");
 	}
 
 	blastbeat.max_fd = rl.rlim_cur;
+	if (blastbeat.max_fd < blastbeat.max_sessions*2) {
+		rl.rlim_cur = blastbeat.max_sessions*2;
+		rl.rlim_max = blastbeat.max_sessions*2;
+		if (setrlimit(RLIMIT_NOFILE, &rl)) {
+			bb_error("unable to set the maximum file descriptors number: setrlimit()");
+			fprintf(stderr,"lowering max sessions to %llu\n", (unsigned long long) blastbeat.max_fd/2);
+			blastbeat.max_sessions = blastbeat.max_fd/2;
+		}	
+		else {
+			blastbeat.max_fd = rl.rlim_max;
+		}
+	}
+
+	fprintf(stderr, "allowed sessions: %llu\n", (unsigned long long) blastbeat.max_sessions);
 
 	blastbeat.sht = malloc(sizeof(struct bb_session_entry) * blastbeat.sht_size);
 	if (!blastbeat.sht) {
@@ -617,7 +645,6 @@ int main(int argc, char *argv[]) {
 
 	// report config, bind sockets and assign ssl keys/certificates
 	struct bb_acceptor *acceptor = blastbeat.acceptors;
-	fprintf(stdout,"*** starting BlastBeat ***\n");
 	while(acceptor) {
 		fprintf(stdout, "\n[acceptor %s]\n", acceptor->name);
 		bb_acceptor_bind(acceptor);

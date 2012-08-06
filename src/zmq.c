@@ -154,8 +154,10 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
                         // dead/invalid session ?
                         struct bb_session *bbs = bb_sht_get(zmq_msg_data(&msg[1]));
                         if (!bbs) goto next;
-
-			update_dealer(bbs->dealer, time(NULL));
+			
+			time_t now = time(NULL);
+			bbs->last_seen = now;
+			update_dealer(bbs->dealer, now);
 
 			char *command = zmq_msg_data(&msg[2]);
 			size_t command_len = zmq_msg_size(&msg[2]);
