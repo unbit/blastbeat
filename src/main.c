@@ -251,6 +251,7 @@ clear:
 	bb_connection_close(bbc);
 }
 
+/*
 static void session_timer_cb(struct ev_loop *loop, struct ev_timer *w, int revents) {
 	struct bb_session_timer *bbst = (struct bb_session_timer *) w;
 	struct bb_session *bbs = bbst->session;
@@ -274,6 +275,7 @@ static void session_timer_cb(struct ev_loop *loop, struct ev_timer *w, int reven
 	return;
 	//bb_connection_close(bbs->connection);
 }
+*/
 
 // each session has a request structure, this strcture can be cleared multiple times
 void bb_initialize_request(struct bb_session *bbs) {
@@ -349,8 +351,8 @@ struct bb_session *bb_session_new(struct bb_connection *bbc) {
 	bbs->send_cache_headers = bb_http_cache_send_headers;
 	bbs->send_cache_body = bb_http_cache_send_body;
 
-	bbs->timer.session = bbs;
-	ev_timer_init(&bbs->timer.timer, session_timer_cb, 0.0, 0.0);
+	//bbs->timer.session = bbs;
+	//ev_timer_init(&bbs->timer.timer, session_timer_cb, 0.0, 0.0);
 
 	blastbeat.active_sessions++;
 	return bbs;
@@ -477,6 +479,20 @@ static void bb_acceptor_bind(struct bb_acceptor *acceptor) {
         if (setsockopt(server, IPPROTO_TCP, TCP_NODELAY, &on, sizeof(int))) {
                 bb_error_exit("setsockopt()");
         }
+
+#ifdef TCP_DEFER_ACCEPT
+	if (setsockopt(server, IPPROTO_TCP, TCP_DEFER_ACCEPT, &on, sizeof(int))) {
+        	bb_error("setsockopt()");
+        }
+#elif defined(SO_ACCEPTFILTER)
+	struct accept_filter_arg afa;
+        strcpy(afa.af_name, "dataready");
+        afa.af_arg[0] = 0;
+        if (setsockopt(server, SOL_SOCKET, SO_ACCEPTFILTER, &afa, sizeof(struct accept_filter_arg))) {
+        	bb_error("setsockopt()");
+	}
+#endif
+
 
         if (bind(server, &acceptor->addr.in, acceptor->addr_len)) {
                 bb_error_exit("unable to bind to address: bind()");

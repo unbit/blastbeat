@@ -108,24 +108,13 @@ int bb_manage_socketio(struct bb_session *bbs) {
 		// get the current connection
 		struct bb_connection *bbc = bbs->connection;
 		// close the current session but without freeing the request
-		//bbsr->do_not_free = 1;
 		bbs->stealth = 1;
-                // we can now clear the current session
+                // we can now close the current session
 		bb_session_close(bbs);
 		// and map it to the new one
 		bbs = persistent_bbs;
 
-		// append the request (other requests could came in the same time)
-		// TODO fix it !
-/*
-		bbs->requests_head = bbsr;
-		bbs->requests_tail = bbsr;
-		bbsr->prev = NULL;
-		bbsr->next = NULL;
-*/
-		// end of TODO
-
-		// and map the connection
+		// ...and map the connection
 		bbs->connection = bbc;
 		// append the session to the connection
 		if (!bbc->sessions_head) {
@@ -137,18 +126,18 @@ int bb_manage_socketio(struct bb_session *bbs) {
                 	bbc->sessions_tail = bbs;
                 	bbs->conn_prev->next = bbs;
         	}
-		// finally fix the request
-		//bbsr->bbs = bbs;
 
 ready:
 		// ok we are ready
 		if (bbs->request.parser.method == HTTP_GET) {
+			// already handshaked, this is a poll
 			if (bbs->sio_connected) {
+				// do not forward the request to the dealer
 				bbs->request.no_uwsgi = 1;
 				struct bb_socketio_message *bbsm = bbs->sio_queue;
                 		if (bbsm) {
 					if (bbs->sio_poller) {
-						ev_feed_event(blastbeat.loop, &bbs->timer.timer, EV_TIMER);
+						//ev_feed_event(blastbeat.loop, &bbs->timer.timer, EV_TIMER);
 						bbs->sio_poller = 0;
 						return 0;
 					}
@@ -159,10 +148,10 @@ ready:
                 			free(bbsm);
 					return 0;
 				}
-				ev_timer_stop(blastbeat.loop, &bbs->timer.timer);
-				bbs->timer.session = bbs;
-				ev_timer_set(&bbs->timer.timer, 5.0, 0.0);
-				ev_timer_start(blastbeat.loop, &bbs->timer.timer);
+				//ev_timer_stop(blastbeat.loop, &bbs->timer.timer);
+				//bbs->timer.session = bbs;
+				//ev_timer_set(&bbs->timer.timer, 5.0, 0.0);
+				//ev_timer_start(blastbeat.loop, &bbs->timer.timer);
 				bbs->sio_poller = 1;
 				return 0;
 			}
@@ -257,7 +246,7 @@ int bb_socketio_push(struct bb_session *bbs, char type, char *buf, size_t len) {
 
 	//is a poller attached to the session ?
 	if (bbs->sio_poller) {
-		ev_feed_event(blastbeat.loop, &bbs->timer.timer, EV_TIMER);
+		//ev_feed_event(blastbeat.loop, &bbs->timer.timer, EV_TIMER);
 		bbs->sio_poller = 0;
 	}
 

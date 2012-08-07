@@ -290,11 +290,6 @@ struct bb_connection {
 		
 };
 
-struct bb_session_timer {
-	ev_timer timer;
-	struct bb_session *session;
-};
-
 struct bb_socketio_message {
 	char *buf;
 	size_t len;
@@ -303,6 +298,8 @@ struct bb_socketio_message {
 
 // a blastbeat session (in HTTP it is mapped to a connection, in SPDY it is mapped to a stream)
 struct bb_session {
+	// destroy the session whenever this timer expires
+	ev_timer death_timer;
 	// this is the uuid key split in 2 64bit numbers
 	uint64_t uuid_part1;
 	uint64_t uuid_part2;
@@ -323,9 +320,6 @@ struct bb_session {
 	// used for monitoring inactivity
 	time_t last_seen;
 
-	// this is the death timer
-	struct bb_session_timer timer;
-	
 	// persistent sessions can be re-called (useful for socket.io in xhr-polling)
 	int persistent;
 	// stealth sessions never touch dealers
