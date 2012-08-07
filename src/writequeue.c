@@ -59,6 +59,10 @@ static void wq_decapitate(struct bb_writer *bbw) {
 void bb_wq_callback(struct ev_loop *loop, struct ev_io *w, int revents) {
 	struct bb_writer *bbw = (struct bb_writer *) w;
 	struct bb_connection *bbc = bbw->connection;
+
+	// reset the connection activity timer
+	bb_connection_reset_timer(bbc);
+
 	struct bb_writer_item *bbwi = bbw->head;
 	while(bbwi) {
 		if (bbwi->flags & BB_WQ_CLOSE) goto end;

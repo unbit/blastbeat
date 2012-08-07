@@ -472,6 +472,11 @@ static void bb_main_config_add(char *key, char *value) {
                 return;
         }
 
+        is_opt( "timeout") {
+		blastbeat.timeout = strtoll(value, NULL, 10);
+                return;
+        }
+
 }
 
 static void bb_vhost_config_add(char *vhostname, char *key, char *value) {
@@ -516,6 +521,11 @@ static void bb_vhost_config_add(char *vhostname, char *key, char *value) {
 
         is_opt( "alias") {
 		bb_hostname_add(value, strlen(value), vhost);
+                return;
+        }
+
+        is_opt( "timeout") {
+		vhost->timeout = strtoll(value, NULL, 10);
                 return;
         }
 

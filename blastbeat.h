@@ -174,6 +174,9 @@ struct bb_virtualhost {
 	char *ssl_certificate;
 	char *ssl_key;
 
+	// inactivy timeout for connections
+	uint64_t timeout;
+
 	struct bb_virtualhost *next;
 };
 
@@ -259,6 +262,8 @@ struct bb_connection {
         int fd;
         struct bb_reader reader;
 	struct bb_acceptor *acceptor;
+
+	uint64_t timeout_value;
 
 	int (*func)(struct bb_connection *, char *, size_t);
 
@@ -424,6 +429,8 @@ struct blastbeat_server {
 	char *uid;
 	char *gid;
 
+	uint64_t timeout;
+
 	uint64_t max_sessions;
 	uint64_t active_sessions;
 
@@ -533,3 +540,5 @@ int null_b_cb(http_parser *, const char *, size_t);
 
 int bb_http_cache_send_headers(struct bb_session *, struct bb_cache_item *);
 int bb_http_cache_send_body(struct bb_session *, struct bb_cache_item *);
+
+void bb_connection_reset_timer(struct bb_connection *);

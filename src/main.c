@@ -205,6 +205,11 @@ int bb_set_dealer(struct bb_session *bbs, char *name, size_t len) {
 	}
 	if (!found) return -1;
 
+	// set the connection timeout for the virtualhost (if specified)
+	if (bbs->connection && vhost->timeout > 0) {
+		bbs->connection->timeout_value = vhost->timeout;	
+	}
+
 	struct bb_vhost_dealer *bbvd = vhost->dealers;
 	struct bb_dealer *best_dealer = NULL;
 	while(bbvd) {
@@ -234,12 +239,22 @@ next:
 	return 0;
 }
 
+void bb_connection_reset_timer(struct bb_connection *bbc) {
+	ev_timer_stop(blastbeat.loop, &bbc->timeout);
+	ev_timer_set(&bbc->timeout, bbc->timeout_value, 0.0);
+	ev_timer_start(blastbeat.loop, &bbc->timeout);
+}
+
 static void bb_rd_callback(struct ev_loop *loop, struct ev_io *w, int revents) {
 
 	char buf[BLASTBEAT_BUFSIZE];
 	ssize_t len;
 	struct bb_reader *bbr = (struct bb_reader *) w;
 	struct bb_connection *bbc = bbr->connection ;
+
+	// reset the timer
+	bb_connection_reset_timer(bbc);
+
 	len = bbc->acceptor->read(bbc, buf, BLASTBEAT_BUFSIZE);
 	if (len > 0) {
 		if (bbc->func(bbc, buf, len)) goto clear;
@@ -396,6 +411,8 @@ static void bb_accept_callback(struct ev_loop *loop, struct ev_io *w, int revent
 
 	// prepare a low level connection timeout
 	ev_timer_init(&bbc->timeout, connection_timer_cb, 0.0, 0.0);
+	// set the deafult timeout
+	bbc->timeout_value = blastbeat.timeout;
 
 	ev_io_start(loop, &bbc->reader.reader);
 }
@@ -646,6 +663,8 @@ int main(int argc, char *argv[]) {
 	blastbeat.gid = "nogroup";
 	blastbeat.max_hops = 10;
 	blastbeat.max_sessions = 10000;
+	// default 30 minutes timeout
+	blastbeat.timeout = 1800;
 	// clear the hostname hashtable (just for safety)
 	memset(blastbeat.hnht, 0, sizeof(struct bb_hostname *) * BLASTBEAT_HOSTNAME_HTSIZE);
 	// run the config parser
