@@ -40,13 +40,17 @@ class BlastBeatFiberSession
     loop do
       msg_type, msg_body = $queue.pop
       case msg_type
+        # on 'uwsgi' message join the 'fiberchat' group
         when 'uwsgi'
           @blastbeat.send(@sid, 'join','fiberchat')
+        # forward the message to all of the peers (myself included)
         when 'websocket'
           @blastbeat.send(@sid, 'fiberchat:websocket', msg_body)
+        # end the fiber and delete the object from the global sessions hash
         when 'end'
           $sessions.delete(@sid)
           return
+        # oops
         else
           puts "unmanaged message type: #{msg_type}"
       end
@@ -87,7 +91,7 @@ loop do
     next
   end
 
-  # crea the new session object
+  # create the new session object
   unless $sessions.has_key?(sid)
     $sessions[sid] = BlastBeatFiberSession.new(blastbeat, sid)
   end
