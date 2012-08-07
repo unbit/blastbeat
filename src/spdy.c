@@ -110,6 +110,11 @@ static int bb_spdy_uwsgi(struct bb_session *bbs, char *ptr, uint16_t hlen) {
 
 	uint16_t i,klen,vlen;
 
+	char *method = NULL;
+	size_t method_len = 0;
+	char *uri = NULL;
+	size_t uri_len = 0;
+
 	for(i=0;i<hlen;i++) {
                 memcpy(&klen, ptr, 2);
                 klen = ntohs(klen); ptr+=2;
@@ -123,6 +128,7 @@ static int bb_spdy_uwsgi(struct bb_session *bbs, char *ptr, uint16_t hlen) {
 
 		if (!bb_strcmp(key, klen, "method", 6)) {
 			if (add_uwsgi_item(bbs, "REQUEST_METHOD", 14, val, vlen, 0)) return -1;
+			method = val; method_len = vlen;
 		}
 		else if (!bb_strcmp(key, klen, "version", 7)) {
 			if (add_uwsgi_item(bbs, "SERVER_PROTOCOL", 15, val, vlen, 0)) return -1;
@@ -148,6 +154,7 @@ static int bb_spdy_uwsgi(struct bb_session *bbs, char *ptr, uint16_t hlen) {
                 		if (add_uwsgi_item(bbs, "PATH_INFO", 9, val, vlen, 0)) return -1;
                 		if (add_uwsgi_item(bbs, "QUERY_STRING", 12, "", 0, 0)) return -1;
         		}
+			uri = val; uri_len = vlen;
 		}
         	// add HTTP_ headers
 		else {
@@ -159,7 +166,12 @@ static int bb_spdy_uwsgi(struct bb_session *bbs, char *ptr, uint16_t hlen) {
 	if (!bbs->dealer) return -1;
 
 	// Ok check for cache here 
-	// TODO
+	// ok now check if the virtualhost as a cache store associated
+        if (bbs->vhost->cache_size > 0 && !bb_stricmp(method, method_len, "GET", 3)) {
+                int ret = bb_manage_cache(bbs, uri, uri_len);
+                if (ret == BLASTBEAT_CACHE_FOUND) return 0;
+                if (ret == BLASTBEAT_CACHE_ERROR) return -1;
+        }
 
 	char *port = strchr(bbs->vhost->name, ':');
 
@@ -322,17 +334,17 @@ int bb_spdy_push_headers(struct bb_session *bbs) {
         return 0;
 }
 
-static int bb_spdy_send_headers(struct bb_session *bbs, char *unused_buf, size_t len) {
+static int bb_spdy_raw_send_headers(struct bb_session *bbs, off_t headers_pos, off_t headers_count, struct bb_http_header *headers, char status[3], char protocol[8]) {
 	int i;
 	// calculate the destination buffer size
 	// zzzzzzzzzzzzzzZZXXstatusXXyyyXXversionXXyyyyyyyy
 	// transform all of the headers keys to lowercase
 	size_t spdy_len = 48;
-	for(i=1;i<=bbs->response.header_pos;i++) {
-		spdy_len += 2 + bbs->response.headers[i].keylen + 2 + bbs->response.headers[i].vallen;
+	for(i=headers_pos;i<headers_count;i++) {
+		spdy_len += 2 + headers[i].keylen + 2 + headers[i].vallen;
 		size_t j;
-		for(j=0;j<bbs->response.headers[i].keylen;j++) {
-			bbs->response.headers[i].key[j] = tolower((int) bbs->response.headers[i].key[j]);
+		for(j=0;j<headers[i].keylen;j++) {
+			headers[i].key[j] = tolower((int) headers[i].key[j]);
 		}
 	}	
 
@@ -362,7 +374,7 @@ static int bb_spdy_send_headers(struct bb_session *bbs, char *unused_buf, size_t
 	buf[13] = 0x00;
 
 	// set the number of headers
-	uint16_t hlen = htons(bbs->response.header_pos+2);
+	uint16_t hlen = htons((headers_count-headers_pos)+2);
 	memcpy(buf+14, &hlen, 2);
 
 	char *ptr = buf+16;
@@ -371,32 +383,28 @@ static int bb_spdy_send_headers(struct bb_session *bbs, char *unused_buf, size_t
 	memcpy(ptr, "status", 6); ptr+=6;
 	slen = htons(3);
 	memcpy(ptr, &slen, 2); ptr+=2;
-	*ptr++ = (bbs->response.parser.status_code/100) + '0';
-	*ptr++ = ((bbs->response.parser.status_code%100)/10) + '0';
-	*ptr++ = ((bbs->response.parser.status_code%100)%10) + '0';
+	*ptr++ = status[0];
+	*ptr++ = status[1];
+	*ptr++ = status[2];
 
 	slen = htons(7);
 	memcpy(ptr, &slen, 2); ptr+=2;
 	memcpy(ptr, "version", 7); ptr+=7;	
 
 	slen = htons(8);
-	char proto[9];
-        if (snprintf(proto, 9, "HTTP/%d.%d", bbs->response.parser.http_major, bbs->response.parser.http_minor) != 8) {
-                return -1;
-        }
 	memcpy(ptr, &slen, 2); ptr+=2;
-	memcpy(ptr, proto, 8); ptr+=8;	
+	memcpy(ptr, protocol, 8); ptr+=8;	
 
-	// generate spdy headers from respons headers
-	for(i=1;i<=bbs->response.header_pos;i++) {
-		slen = htons(bbs->response.headers[i].keylen);
+	// generate spdy headers from response headers
+	for(i=headers_pos;i<headers_count;i++) {
+		slen = htons(headers[i].keylen);
 		memcpy(ptr, &slen, 2); ptr += 2;
-		memcpy(ptr, bbs->response.headers[i].key, bbs->response.headers[i].keylen);
-		ptr += bbs->response.headers[i].keylen;
-		slen = htons(bbs->response.headers[i].vallen);
+		memcpy(ptr, headers[i].key, headers[i].keylen);
+		ptr += headers[i].keylen;
+		slen = htons(headers[i].vallen);
 		memcpy(ptr, &slen, 2); ptr += 2;
-		memcpy(ptr, bbs->response.headers[i].value, bbs->response.headers[i].vallen);
-		ptr += bbs->response.headers[i].vallen;
+		memcpy(ptr, headers[i].value, headers[i].vallen);
+		ptr += headers[i].vallen;
 	}
 
 	size_t ch_len = 0;
@@ -418,6 +426,23 @@ static int bb_spdy_send_headers(struct bb_session *bbs, char *unused_buf, size_t
 	}
 	
 	return 0;
+}
+
+static int bb_spdy_send_headers(struct bb_session *bbs, char *unused_buf, size_t len) {
+	char status[3];
+	status[0] = (bbs->response.parser.status_code/100) + '0';
+	status[1] = ((bbs->response.parser.status_code%100)/10) + '0';
+	status[2] = ((bbs->response.parser.status_code%100)%10) + '0';
+	char proto[9];
+        if (snprintf(proto, 9, "HTTP/%d.%d", bbs->response.parser.http_major, bbs->response.parser.http_minor) != 8) {
+                return -1;
+        }
+	return bb_spdy_raw_send_headers(bbs, 1, bbs->response.header_pos+1, bbs->response.headers, status, proto);
+}
+
+
+static int bb_spdy_send_cache_headers(struct bb_session *bbs, struct bb_cache_item *bbci) {
+	return bb_spdy_raw_send_headers(bbs, 0, bbci->headers_count, bbci->headers, bbci->status, bbci->protocol);
 }
 
 static int bb_spdy_send_body(struct bb_session *bbs, char *buf, size_t len) {
@@ -476,6 +501,16 @@ static int bb_spdy_send_body(struct bb_session *bbs, char *buf, size_t len) {
 	bbs->fin = 1;
 	return bb_wq_push_eos(bbs);
 
+}
+
+static int bb_spdy_send_cache_body(struct bb_session *bbs, struct bb_cache_item *bbci) {
+	if (bb_spdy_send_body(bbs, bbci->body, bbci->body_len))
+		return -1;
+	// end the stream
+	if (bb_spdy_send_body(bbs, "", 0))
+		return -1;
+	
+	return 0;
 }
 
 static int bb_spdy_send_end(struct bb_session *bbs) {
@@ -563,6 +598,8 @@ static int bb_manage_spdy_msg(struct bb_connection *bbc) {
 			bbs->send_headers = bb_spdy_send_headers;
 			bbs->send_end = bb_spdy_send_end;
 			bbs->send_body = bb_spdy_send_body;
+			bbs->send_cache_headers = bb_spdy_send_cache_headers;
+			bbs->send_cache_body = bb_spdy_send_cache_body;
 
 			bbs->stream_id = bbc->spdy_stream_id;
 			if (bb_spdy_inflate(bbs, bbc->spdy_body_buf, bbc->spdy_length)) {
