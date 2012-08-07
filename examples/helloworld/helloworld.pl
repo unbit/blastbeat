@@ -30,6 +30,15 @@ while(1) {
 
 		enqueue($socket, $sid, 'body', '</table>');
 
+		# store something in the cache
+		enqueue($socket, $sid, 'cache', "/foobar001 17 1\r\nHTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 5\r\n\r\n<h1>I Am from CaChe</h1>");
+		enqueue($socket, $sid, 'cache', "/foobar002 0\r\nHTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<h1>I Am from CaChe 2</h1>");
+		enqueue($socket, $sid, 'cache', "/foobar003 10\r\nHTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n<h1>I Am from CaChe 3</h1>");
+
+		enqueue($socket, $sid, 'cache', "/foobar004\r\nTEST/0.0 404 Not Found\r\nContent-Type: text/plain\r\n\r\n<h1>I Am from CaChe 3</h1>");
+		enqueue($socket, $sid, 'cache', "/foobar005\r\nHTTP/1.0\r\nContent-Type: text/plain\r\n\r\n<h1>I Am from CaChe 3</h1>");
+		enqueue($socket, $sid, 'cache', "/foobar006\r\nHTTP/1.0 200 OK\r\n\r\nAm from CaChe 3</h1>");
+
 		enqueue($socket, $sid, 'end');
 	}
 

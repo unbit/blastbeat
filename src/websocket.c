@@ -183,7 +183,7 @@ int bb_websocket_reply(struct bb_session *bbs, char *msg, size_t len) {
         }
         else if (len < ((uint64_t)1 << 63)) {
                 header[1] = 127;
-                len64 = htonll(len);
+                len64 = htonll((uint64_t)len);
 		pkt_len += 8;
         }
 	else {

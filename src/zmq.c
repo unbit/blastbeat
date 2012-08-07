@@ -268,8 +268,13 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 			}
 
 			on_cmd("join") {
-                                if (bb_join_group(bbs, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3])))
+                                if (bb_join_group(bbs, zmq_msg_data(&msg[3]), msg_len))
                                 	bb_session_close(bbs);
+                                goto next;
+                        }
+
+			on_cmd("cache") {
+				bb_cache_store(bbs, zmq_msg_data(&msg[3]), msg_len);
                                 goto next;
                         }
 

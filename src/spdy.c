@@ -156,22 +156,21 @@ static int bb_spdy_uwsgi(struct bb_session *bbs, char *ptr, uint16_t hlen) {
 
         }
 
-	char *port = NULL;
-	if (bbs->dealer) {
-		 port = strchr(bbs->vhost->name, ':');
-	}
+	if (!bbs->dealer) return -1;
 
-        if (bbs->dealer && port) {
+	// Ok check for cache here 
+	// TODO
+
+	char *port = strchr(bbs->vhost->name, ':');
+
+        if (port) {
                	if (add_uwsgi_item(bbs, "SERVER_NAME", 11, bbs->vhost->name, port-(bbs->vhost->name), 0)) return -1;
                	if (add_uwsgi_item(bbs, "SERVER_PORT", 11, port+1, (bbs->vhost->name + bbs->vhost->len) - (port+1), 0)) return -1;
         }
-        else if (bbs->dealer) {
+        else {
                	if (add_uwsgi_item(bbs, "SERVER_NAME", 11, bbs->vhost->name, bbs->vhost->len, 0)) return -1;
                	if (add_uwsgi_item(bbs, "SERVER_PORT", 11, "80", 2, 0)) return -1;
         }
-	else {
-		return -1;
-	}
 
         // set uwsgi header
         uint16_t pktsize = bbs->request.uwsgi_pos;

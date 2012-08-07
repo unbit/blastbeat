@@ -13,6 +13,7 @@ OBJ += src/sessions_ht.o
 OBJ+= src/writequeue.o
 OBJ+= src/groups.o
 OBJ+= src/socketio.o
+OBJ+= src/cache.o
 OBJ += http-parser/http_parser.o
 
 

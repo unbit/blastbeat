@@ -151,6 +151,22 @@ int bb_nonblock(int fd) {
 	return 0;
 }
 
+size_t bb_str2num(char *str, int len) {
+
+        int i;
+        size_t num = 0;
+
+        size_t delta = pow(10, len);
+
+        for (i = 0; i < len; i++) {
+                delta = delta / 10;
+                num += delta * (str[i] - 48);
+        }
+
+        return num;
+}
+
+
 int bb_stricmp(char *str1, size_t str1len, char *str2, size_t str2len) {
 	if (str1len != str2len) return -1;
 	return strncasecmp(str1, str2, str1len);
@@ -330,6 +346,8 @@ struct bb_session *bb_session_new(struct bb_connection *bbc) {
 	bbs->send_headers = bb_http_send_headers;
 	bbs->send_end = bb_http_send_end;
 	bbs->send_body = bb_http_send_body;
+	bbs->send_cache_headers = bb_http_cache_send_headers;
+	bbs->send_cache_body = bb_http_cache_send_body;
 
 	bbs->timer.session = bbs;
 	ev_timer_init(&bbs->timer.timer, session_timer_cb, 0.0, 0.0);
@@ -508,7 +526,8 @@ static void bb_acceptor_push_vhost(struct bb_acceptor *acceptor, struct bb_virtu
 	}
 }
 
-static void bb_acceptors_fix() {
+// this allocates memory for caching too
+static void bb_vhosts_fix() {
 
 	struct bb_virtualhost *vhosts = blastbeat.vhosts;
 	while(vhosts) {
@@ -516,6 +535,14 @@ static void bb_acceptors_fix() {
 		while(acceptor) {
 			bb_acceptor_push_vhost(acceptor->acceptor, vhosts);
 			acceptor = acceptor->next;
+		}
+		if (vhosts->cache_size > 0) {
+			vhosts->cht_size = 65536;
+			vhosts->cache = malloc(sizeof(struct bb_cache_entry) * vhosts->cht_size);
+			if (!vhosts->cache) {
+				bb_error_exit("unable to allocate memory for caching: malloc()\n");
+			}
+			memset(vhosts->cache, 0, sizeof(struct bb_cache_entry) * vhosts->cht_size);
 		}
 		vhosts = vhosts->next;
 	}
@@ -621,8 +648,8 @@ int main(int argc, char *argv[]) {
 		exit(1);
 	}
 
-	// fix acceptors/vhosts
-	bb_acceptors_fix();
+	// fix acceptors/vhosts/cache...
+	bb_vhosts_fix();
 
 	fprintf(stderr,"*** starting BlastBeat ***\n");
 

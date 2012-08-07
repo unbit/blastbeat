@@ -37,6 +37,52 @@ int bb_http_send_body(struct bb_session *bbs, char *buf, size_t len) {
 	return 0;
 }
 
+int bb_http_cache_send_headers(struct bb_session *bbs, struct bb_cache_item *bbci) {
+	char *first_line = malloc(bbci->http_first_line_len+2);
+	if (!first_line) {
+		bb_error("malloc()");
+		return -1;
+	}
+	memcpy(first_line, bbci->http_first_line, bbci->http_first_line_len);
+	first_line[bbci->http_first_line_len] = '\r';
+	first_line[bbci->http_first_line_len+1] = '\n';
+
+	if (bb_wq_push(bbs, first_line, bbci->http_first_line_len+2, BB_WQ_FREE))
+                return -1;
+
+	size_t i;
+	for(i=0;i<bbci->headers_count;i++) {
+		char *header = malloc(bbci->headers[i].keylen+2+bbci->headers[i].vallen+2);
+		if (!header) {
+			bb_error("malloc()");
+			return -1;
+		}
+		memcpy(header, bbci->headers[i].key, bbci->headers[i].keylen);
+		header[bbci->headers[i].keylen] = ':';
+		header[bbci->headers[i].keylen+1] = ' ';
+		memcpy(header+bbci->headers[i].keylen+2, bbci->headers[i].value, bbci->headers[i].vallen);
+		header[bbci->headers[i].keylen+2+bbci->headers[i].vallen] = '\r';
+		header[bbci->headers[i].keylen+2+bbci->headers[i].vallen+1] = '\n';
+		if (bb_wq_push(bbs, header, bbci->headers[i].keylen+2+bbci->headers[i].vallen+2, BB_WQ_FREE))
+                	return -1;
+	}
+
+	if (bb_wq_push(bbs, "\r\n", 2, 0))
+                return -1;
+
+	return 0;
+}
+
+int bb_http_cache_send_body(struct bb_session *bbs, struct bb_cache_item *bbci) {
+	if (bb_wq_push_copy(bbs, bbci->body, bbci->body_len, BB_WQ_FREE))
+                return -1;
+	// close the connection if the cached response has no valid EOS
+	if (!bbci->valid) {
+        	return bb_wq_push_close(bbs);
+	}
+	return 0;
+}
+
 ssize_t bb_http_read(struct bb_connection *bbc, char *buf, size_t len) {
         return read(bbc->fd, buf, len);
 }
@@ -92,11 +138,11 @@ static int url_cb(http_parser *parser, const char *buf, size_t len) {
 }
 
 
-static int null_cb(http_parser *parser) {
+int null_cb(http_parser *parser) {
         return 0;
 }
 
-static int null_b_cb(http_parser *parser, const char *buf, size_t len) {
+int null_b_cb(http_parser *parser, const char *buf, size_t len) {
         return 0;
 }
 
@@ -231,6 +277,14 @@ static int bb_session_headers_complete(http_parser *parser) {
                 bbs->response.close = 1;
         }
 
+	// ok now check if the virtualhost as a cache store associated
+	if (bbs->vhost->cache_size > 0 && bbs->request.parser.method == HTTP_GET) {
+		int ret = bb_manage_cache(bbs, bbs->request.headers[0].key, bbs->request.headers[0].keylen);
+		if (ret == BLASTBEAT_CACHE_MISS) goto msg;
+		if (ret == BLASTBEAT_CACHE_FOUND) return 0;
+		if (ret == BLASTBEAT_CACHE_ERROR) return -1;
+	}
+
 msg:
 	if (bbs->request.no_uwsgi) return 0;
         // now encode headers in a uwsgi packet and send it as "headers" message
@@ -255,22 +309,6 @@ static char *find_third_colon(char *buf, size_t len) {
         }
 	return NULL;
 } 
-
-static size_t str2num(char *str, int len) {
-
-        int i;
-        size_t num = 0;
-
-        size_t delta = pow(10, len);
-
-        for (i = 0; i < len; i++) {
-                delta = delta / 10;
-                num += delta * (str[i] - 48);
-        }
-
-        return num;
-}
-
 
 int bb_socketio_message(struct bb_session *bbs, char *buf, size_t len) {
 	char *sio_body = find_third_colon(buf, len);
@@ -318,7 +356,7 @@ static int bb_session_request_complete(http_parser *parser) {
 					end_of_num++;
 					ptr++;
 				}
-				size_t part_len = str2num(base_of_num, end_of_num);
+				size_t part_len = bb_str2num(base_of_num, end_of_num);
 				if (*ptr++ != '\xef') return -1;	
 				if (ptr+1 > watermark) return -1;
 				if (*ptr++ != '\xbf') return -1;	

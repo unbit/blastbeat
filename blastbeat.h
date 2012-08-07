@@ -56,6 +56,10 @@
 
 #define BLASTBEAT_MAX_GROUPNAME_LEN     64
 
+#define BLASTBEAT_CACHE_FOUND	0
+#define BLASTBEAT_CACHE_MISS	-1
+#define BLASTBEAT_CACHE_ERROR	-2
+
 struct bb_virtualhost;
 struct bb_session;
 
@@ -112,6 +116,40 @@ struct bb_group_session {
 	struct bb_group_session *next;
 };
 
+struct bb_cache_item {
+	ev_timer expires;
+	char *key;
+	size_t keylen;
+
+	// useful for SPDY
+	char protocol[8];
+	char status[3];
+
+        // the list of headers (must be freed after each request)
+        struct bb_http_header *headers;
+	// the number of headers
+	off_t headers_count;
+	// used by the header parser
+        int last_was_value;
+	// correctly parsed ?
+	int valid;
+
+	char *http_end_of_first_line;
+	char *http_first_line;
+	size_t http_first_line_len;
+	
+	char *body;
+	size_t body_len;
+
+	struct bb_cache_entry *entry;
+	struct bb_cache_item *prev;
+	struct bb_cache_item *next;
+};
+
+struct bb_cache_entry {
+	struct bb_cache_item *head;
+	struct bb_cache_item *tail;
+};
 
 // a blastbeat virtualhost
 struct bb_virtualhost {
@@ -125,6 +163,10 @@ struct bb_virtualhost {
 	uint32_t ght_size;
 	struct bb_group_entry *ght;
 
+	// the cache store
+	uint32_t cht_size;
+	uint64_t cache_size;
+	struct bb_cache_entry *cache;
 	
 	uint64_t max_sessions;
 	uint64_t active_sessions;
@@ -322,6 +364,8 @@ struct bb_session {
 	int (*send_headers)(struct bb_session *, char *, size_t);
 	int (*send_end)(struct bb_session *);
 	int (*send_body)(struct bb_session *, char *, size_t);
+	int (*send_cache_headers)(struct bb_session *, struct bb_cache_item *);
+	int (*send_cache_body)(struct bb_session *, struct bb_cache_item *);
 };
 
 struct bb_session_entry {
@@ -453,6 +497,7 @@ void bb_socket_ssl(struct bb_acceptor *);
 int bb_stricmp(char *, size_t, char *, size_t);
 int bb_strcmp(char *, size_t, char *, size_t);
 int bb_startswith(char *, size_t, char *, size_t);
+size_t bb_str2num(char *, int);
 
 int bb_manage_websocket(struct bb_session *, char *, ssize_t);
 int bb_send_websocket_handshake(struct bb_session *);
@@ -481,3 +526,12 @@ int bb_websocket_func(struct bb_connection *, char *, size_t);
 
 struct bb_virtualhost *bb_vhost_get(char *, size_t);
 void bb_vhost_push_acceptor(struct bb_virtualhost *, struct bb_acceptor *);
+
+int bb_manage_cache(struct bb_session *, char *, size_t);
+void bb_cache_store(struct bb_session *bbs, char *buf, size_t);
+
+int null_cb(http_parser *);
+int null_b_cb(http_parser *, const char *, size_t);
+
+int bb_http_cache_send_headers(struct bb_session *, struct bb_cache_item *);
+int bb_http_cache_send_body(struct bb_session *, struct bb_cache_item *);

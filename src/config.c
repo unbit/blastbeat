@@ -200,7 +200,7 @@ static struct bb_virtualhost *get_or_create_vhost(char *vhostname) {
 	}
 
 	if (bb_hostname_add(vhost->name, vhost->len, vhost)) {
-		fprintf(stderr,"!!! the virtualhost \"%.*s\" will never be used !!!\n", vhost->len, vhost->name);
+		fprintf(stderr,"!!! the virtualhost \"%.*s\" will never be used !!!\n", (int) vhost->len, vhost->name);
 	}
 	return vhost;
 }
@@ -508,6 +508,11 @@ static void bb_vhost_config_add(char *vhostname, char *key, char *value) {
                 create_vhost_dealer(vhost, value);
                 return;
         }
+
+	is_opt( "cache") {
+		vhost->cache_size = strtoll(value, NULL, 10)*(1024*1024);
+		return;
+	}
 
         is_opt( "alias") {
 		bb_hostname_add(value, strlen(value), vhost);
