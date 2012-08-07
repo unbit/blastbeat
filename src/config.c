@@ -23,6 +23,74 @@ static int count_chars(char *str, char what) {
 static void bb_main_config_add(char *, char *);
 static void bb_vhost_config_add(char *, char *, char *);
 
+static uint32_t djb2_hash_hostname(char *key, size_t len) {
+
+        uint32_t hash = 5381;
+        size_t i;
+        for(i=0;i<len;i++) {
+                hash = hash * 33 + key[i];
+        }
+
+        return (hash % BLASTBEAT_HOSTNAME_HTSIZE);
+
+}
+
+static int bb_hostname_compare(struct bb_hostname *bbhn, char *name, size_t len) {
+        if (bbhn->len != len) return 0;
+        return !memcmp(bbhn->name, name, len);
+}
+
+// add the hostname to the hostnames hash
+static int bb_hostname_add(char *name, size_t len, struct bb_virtualhost *vhost) {
+
+	struct bb_virtualhost *already = bb_vhost_get(name, len);
+	if (already) {
+		fprintf(stderr,"!!! hostname \"%.*s\" is already configured for virtualhost \"%.*s\" !!!\n", (int) len, name, (int) already->len, already->name);
+		return -1;
+	}
+        // get the hash
+        uint32_t hnht_pos = djb2_hash_hostname(name, len);
+        // get the first hostname
+        struct bb_hostname *bbhn_last = NULL,*bbhn = blastbeat.hnht[hnht_pos];
+	while(bbhn) {
+		bbhn_last = bbhn;
+		bbhn = bbhn->next;
+	}
+	
+        bbhn = malloc(sizeof(struct bb_hostname));
+        if (!bbhn) {
+                bb_error_exit("unable to allocate memory for hostname: malloc()");
+        }
+        bbhn->name = name;
+        bbhn->len = len;
+        bbhn->vhost = vhost;
+        bbhn->next = NULL;
+
+        if (bbhn_last) {
+		bbhn_last->next = bbhn;
+        }
+        else {
+		blastbeat.hnht[hnht_pos] = bbhn;
+        }
+
+	return 0;
+}
+
+// get a vhost by hostname
+struct bb_virtualhost *bb_vhost_get(char *name, size_t len) {
+
+        uint32_t hnht_pos = djb2_hash_hostname(name, len);
+        struct bb_hostname *bbhn = blastbeat.hnht[hnht_pos];
+        while(bbhn) {
+                if (bb_hostname_compare(bbhn, name, len)) {
+                        return bbhn->vhost;
+                }
+                bbhn = bbhn->next;
+        };
+        return NULL;
+}
+
+
 static struct bb_acceptor *bb_get_acceptor(char *addr, int shared, void (*func)(struct bb_acceptor *)) {
 	struct bb_acceptor *last_acceptor = NULL, *acceptor;
 	union bb_addr bba;
@@ -129,6 +197,10 @@ static struct bb_virtualhost *get_or_create_vhost(char *vhostname) {
 	}
 	else {
 		blastbeat.vhosts = vhost;
+	}
+
+	if (bb_hostname_add(vhost->name, vhost->len, vhost)) {
+		fprintf(stderr,"!!! the virtualhost \"%.*s\" will never be used !!!\n", vhost->len, vhost->name);
 	}
 	return vhost;
 }
@@ -331,7 +403,7 @@ void bb_ini_config(char *file) {
 
 }
 
-static void bb_vhost_push_acceptor(struct bb_virtualhost *vhost, struct bb_acceptor *acceptor) {
+void bb_vhost_push_acceptor(struct bb_virtualhost *vhost, struct bb_acceptor *acceptor) {
 	
 	struct bb_vhost_acceptor *last_bbva = NULL, *bbva = vhost->acceptors;
 	while(bbva) {
@@ -434,6 +506,11 @@ static void bb_vhost_config_add(char *vhostname, char *key, char *value) {
 
         is_opt( "node") {
                 create_vhost_dealer(vhost, value);
+                return;
+        }
+
+        is_opt( "alias") {
+		bb_hostname_add(value, strlen(value), vhost);
                 return;
         }
 

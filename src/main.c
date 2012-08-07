@@ -167,43 +167,50 @@ int bb_startswith(char *str1, size_t str1len, char *str2, size_t str2len) {
 }
 
 int bb_set_dealer(struct bb_session *bbs, char *name, size_t len) {
+	// get the virtualhost from the hostname
+	struct bb_virtualhost *vhost = bb_vhost_get(name, len);
+	if (!vhost) return -1;
+
+	// check if the virtualhost is allowed in that acceptor
+	int found = 0;
 	struct bb_acceptor *acceptor = bbs->connection->acceptor;
-	struct bb_acceptor_vhost *vhost = acceptor->vhosts;
-	while(vhost) {
-		if (!bb_stricmp(name, len, vhost->vhost->name, vhost->vhost->len)) {
-			struct bb_vhost_dealer *bbvd = vhost->vhost->dealers;
-			struct bb_dealer *best_dealer = NULL;
-			while(bbvd) {
-				if (bbvd->dealer->status == BLASTBEAT_DEALER_OFF) goto next;
-				if (!best_dealer) {
-					best_dealer = bbvd->dealer;
-				}
-				else if (bbvd->dealer->load < best_dealer->load) {
-					best_dealer = bbvd->dealer;
-				}
+	struct bb_vhost_acceptor *allowed_acceptor = vhost->acceptors;
+	while(allowed_acceptor) {
+		if (allowed_acceptor->acceptor == acceptor) {
+			found = 1;
+			break;
+		}
+		allowed_acceptor = allowed_acceptor->next;
+	}
+	if (!found) return -1;
+
+	struct bb_vhost_dealer *bbvd = vhost->dealers;
+	struct bb_dealer *best_dealer = NULL;
+	while(bbvd) {
+		if (bbvd->dealer->status == BLASTBEAT_DEALER_OFF) goto next;
+		if (!best_dealer) {
+			best_dealer = bbvd->dealer;
+		}
+		else if (bbvd->dealer->load < best_dealer->load) {
+			best_dealer = bbvd->dealer;
+		}
 next:
-				bbvd = bbvd->next;
-			}
-		
-			if (best_dealer) {
-				best_dealer->load++;
-				bbs->vhost = vhost->vhost;
-				// increase only if it is not a moving session
-				if (!bbs->dealer) {
-					if (bbs->vhost->max_sessions > 0 && bbs->vhost->active_sessions+1 > bbs->vhost->max_sessions) {
-						fprintf(stderr,"!!! maximum number of sessions (%llu) for virtualhost \"%.*s\" reached !!!\n", (unsigned long long) bbs->vhost->max_sessions, (int) bbs->vhost->len, bbs->vhost->name);
-						return -1;
-					}
-					bbs->vhost->active_sessions++;
-				}
-				bbs->dealer = best_dealer;
-				return 0;
-			}
+		bbvd = bbvd->next;
+	}
+	
+	if (!best_dealer) return -1;
+	best_dealer->load++;
+	bbs->vhost = vhost;
+	// increase only if it is not a moving session
+	if (!bbs->dealer) {
+		if (bbs->vhost->max_sessions > 0 && bbs->vhost->active_sessions+1 > bbs->vhost->max_sessions) {
+			fprintf(stderr,"!!! maximum number of sessions (%llu) for virtualhost \"%.*s\" reached !!!\n", (unsigned long long) bbs->vhost->max_sessions, (int) bbs->vhost->len, bbs->vhost->name);
 			return -1;
 		}
-		vhost = vhost->next;
+		bbs->vhost->active_sessions++;
 	}
-	return -1;
+	bbs->dealer = best_dealer;
+	return 0;
 }
 
 static void bb_rd_callback(struct ev_loop *loop, struct ev_io *w, int revents) {
@@ -521,6 +528,8 @@ static void bb_acceptors_fix() {
 			while(acceptor) {
 				if (acceptor->shared) {
 					bb_acceptor_push_vhost(acceptor, vhosts);
+					// attach teh acceptor to the virtualhost too
+					bb_vhost_push_acceptor(vhosts, acceptor);
 				}
 				acceptor = acceptor->next;
 			}
@@ -596,6 +605,9 @@ int main(int argc, char *argv[]) {
 	blastbeat.gid = "nogroup";
 	blastbeat.max_hops = 10;
 	blastbeat.max_sessions = 10000;
+	// clear the hostname hashtable (just for safety)
+	memset(blastbeat.hnht, 0, sizeof(struct bb_hostname *) * BLASTBEAT_HOSTNAME_HTSIZE);
+	// run the config parser
 	bb_ini_config(argv[1]);
 
 	// validate config
@@ -640,6 +652,7 @@ int main(int argc, char *argv[]) {
 		bb_error_exit("unable to allocate sessions hashtable: malloc()");
 	}
 	memset(blastbeat.sht, 0, sizeof(struct bb_session_entry) * blastbeat.sht_size);
+	
 
 	blastbeat.loop = EV_DEFAULT;
 

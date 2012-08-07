@@ -30,7 +30,7 @@ int bb_http_send_body(struct bb_session *bbs, char *buf, size_t len) {
 	if (bb_wq_push_copy(bbs, buf, len, BB_WQ_FREE))
 		return -1;
 	bbs->response.written_bytes += len;
-	if (bbs->response.content_length != ULLONG_MAX &&
+	if (bbs->response.content_length != ULLONG_MAX && bbs->response.content_length > 0 &&
 		bbs->response.written_bytes >= bbs->response.content_length &&
 		bbs->response.close)
         	return bb_wq_push_close(bbs);

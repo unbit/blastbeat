@@ -49,6 +49,7 @@
 
 
 #define BLASTBEAT_BUFSIZE	8192
+#define BLASTBEAT_HOSTNAME_HTSIZE	65536
 
 #define BLASTBEAT_DEALER_OFF		0
 #define BLASTBEAT_DEALER_AVAILABLE	1
@@ -361,6 +362,13 @@ struct bb_vhost_acceptor {
 	struct bb_vhost_acceptor *next;
 };
 
+// hostnames (name -> vhost mappings)
+struct bb_hostname {
+	char *name;
+	size_t len;
+	struct bb_virtualhost *vhost;
+	struct bb_hostname *next;
+};
 
 // the main server structure
 struct blastbeat_server {
@@ -390,6 +398,8 @@ struct blastbeat_server {
 
 	uint32_t sht_size;
 	struct bb_session_entry *sht;
+
+	struct bb_hostname *hnht[BLASTBEAT_HOSTNAME_HTSIZE];
 
 	struct bb_dealer *dealers;
 
@@ -468,3 +478,6 @@ int bb_http_send_end(struct bb_session *);
 int bb_http_send_body(struct bb_session *, char *, size_t);
 
 int bb_websocket_func(struct bb_connection *, char *, size_t);
+
+struct bb_virtualhost *bb_vhost_get(char *, size_t);
+void bb_vhost_push_acceptor(struct bb_virtualhost *, struct bb_acceptor *);
