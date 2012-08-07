@@ -21,8 +21,11 @@ persistent sessions get the request/response datas cleared after each usage
 void bb_session_close(struct bb_session *bbs) {
 	struct bb_connection *bbc = bbs->connection;
 
-	if (!bbs->persistent)
+	if (!bbs->persistent) {
+		// stop the death timer before destrying the session
+		ev_timer_stop(blastbeat.loop, &bbs->death_timer);
                 bb_sht_remove(bbs);
+	}
 
         // clear the HTTP request structure
         bb_initialize_request(bbs);
@@ -84,6 +87,8 @@ connection close is triggered:
 */
 
 void bb_connection_close(struct bb_connection *bbc) {
+	// stop the timer
+	ev_timer_stop(blastbeat.loop, &bbc->timeout);
 	// stop I/O
 	ev_io_stop(blastbeat.loop, &bbc->reader.reader);
 	ev_io_stop(blastbeat.loop, &bbc->writer.writer);
@@ -251,31 +256,22 @@ clear:
 	bb_connection_close(bbc);
 }
 
-/*
+static void connection_timer_cb(struct ev_loop *loop, struct ev_timer *w, int revents) {
+	struct bb_connection *bbc = (struct bb_connection *) w;
+	bb_connection_close(bbc);
+}
+
 static void session_timer_cb(struct ev_loop *loop, struct ev_timer *w, int revents) {
-	struct bb_session_timer *bbst = (struct bb_session_timer *) w;
-	struct bb_session *bbs = bbst->session;
-	if (!bbs) return;
+	struct bb_session *bbs = (struct bb_session *) w;
 
 	fprintf(stderr,"IN THE TIMER\n");
-	struct bb_socketio_message *bbsm = bbs->sio_queue;
-	if (!bbsm) {
-		fprintf(stderr,"DELIVERING EMPTY MESSAGE\n");
-		bb_socketio_send(bbs, "", 0);
-		return;
+	if (bbs->death_timer_func) {
+		if (bbs->death_timer_func(bbs)) {
+			return;
+		}
 	}
-	// TODO add an error counter
-	fprintf(stderr,"sending %.*s\n", bbsm->len, bbsm->buf);
-	if (bb_socketio_send(bbs, bbsm->buf, bbsm->len)) {
-		fprintf(stderr,"unable to deliver message\n");
-	}
-	bbs->sio_queue = bbsm->next;
-	free(bbsm);
-
-	return;
-	//bb_connection_close(bbs->connection);
+	bb_session_close(bbs);
 }
-*/
 
 // each session has a request structure, this strcture can be cleared multiple times
 void bb_initialize_request(struct bb_session *bbs) {
@@ -351,8 +347,7 @@ struct bb_session *bb_session_new(struct bb_connection *bbc) {
 	bbs->send_cache_headers = bb_http_cache_send_headers;
 	bbs->send_cache_body = bb_http_cache_send_body;
 
-	//bbs->timer.session = bbs;
-	//ev_timer_init(&bbs->timer.timer, session_timer_cb, 0.0, 0.0);
+	ev_timer_init(&bbs->death_timer, session_timer_cb, 0.0, 0.0);
 
 	blastbeat.active_sessions++;
 	return bbs;
@@ -398,6 +393,9 @@ static void bb_accept_callback(struct ev_loop *loop, struct ev_io *w, int revent
 	bbc->reader.connection = bbc;
 	ev_io_init(&bbc->writer.writer, bb_wq_callback, client, EV_WRITE);
 	bbc->writer.connection = bbc;
+
+	// prepare a low level connection timeout
+	ev_timer_init(&bbc->timeout, connection_timer_cb, 0.0, 0.0);
 
 	ev_io_start(loop, &bbc->reader.reader);
 }

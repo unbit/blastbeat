@@ -255,6 +255,7 @@ struct bb_writer {
 
 // a connection from a peer to blastbeat
 struct bb_connection {
+	ev_timer timeout;
         int fd;
         struct bb_reader reader;
 	struct bb_acceptor *acceptor;
@@ -360,6 +361,9 @@ struct bb_session {
 	int (*send_body)(struct bb_session *, char *, size_t);
 	int (*send_cache_headers)(struct bb_session *, struct bb_cache_item *);
 	int (*send_cache_body)(struct bb_session *, struct bb_cache_item *);
+
+	// special hook to run on session timeout
+	int (*death_timer_func)(struct bb_session *);
 };
 
 struct bb_session_entry {
