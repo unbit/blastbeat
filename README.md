@@ -41,7 +41,7 @@ header. SPDY sessions do not support chunked messages)
 
 * **push** (SPDY push service, works like 'headers', see below)
 
-* **cache** place an HTTP response in the cache (see below)
+* **cache** (place an HTTP response in the cache, see below)
 
 Commands in development/study/analysis
 
@@ -421,7 +421,9 @@ socket.send('/foobar001\r\nHTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<H1
 
 The 'cache' message body is composed by two areas (delimited by \r\n). The first 'line' has this syntax:
 
+```
 <key> [expires] [flags]
+```
 
 key is the uri BlastBeat will use for the cache item, expires is the number of seconds after the cache item is destroyed.
 
