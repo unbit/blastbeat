@@ -77,10 +77,15 @@ int bb_manage_websocket_header(struct bb_session *bbs, char byte1, char byte2) {
 }
 
 void bb_websocket_pass(struct bb_session *bbs, char *buf, ssize_t len) {
+	if (bbs->sio_connected) {
+		bb_socketio_message(bbs, buf, len);
+		return;
+	}
         bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "websocket", 9, buf, len);
 }
 
 int bb_manage_websocket(struct bb_session *bbs, char *buf, ssize_t len) {
+
 
 	bbs->request.websocket_message_queue = realloc(bbs->request.websocket_message_queue, bbs->request.websocket_message_queue_len + len);
 	memcpy(bbs->request.websocket_message_queue + bbs->request.websocket_message_queue_len, buf, len);
@@ -144,7 +149,7 @@ parser:
                                        ptr[i] = ptr[i] ^ mask[i%4];
                                }
                        }
-                       //printf("message = %.*s\n", bbs->request.websocket_message_size, bbs->request.websocket_message_queue + bbs->request.websocket_message_queue_pos);
+                       //fprintf(stderr, "message = %.*s\n", bbs->request.websocket_message_size, bbs->request.websocket_message_queue + bbs->request.websocket_message_queue_pos);
                        bb_websocket_pass(bbs, bbs->request.websocket_message_queue + bbs->request.websocket_message_queue_pos, bbs->request.websocket_message_size);
                        char *old_queue = bbs->request.websocket_message_queue;
                        uint64_t old_queue_len = bbs->request.websocket_message_queue_len;
@@ -154,6 +159,8 @@ parser:
                        		bbs->request.websocket_message_queue = malloc(old_queue_len - (bbs->request.websocket_message_queue_pos + bbs->request.websocket_message_size));
 				bbs->request.websocket_message_queue_len = old_queue_len - (bbs->request.websocket_message_queue_pos + bbs->request.websocket_message_size);
 				memcpy(bbs->request.websocket_message_queue, old_queue + bbs->request.websocket_message_queue_pos + bbs->request.websocket_message_size, bbs->request.websocket_message_queue_len);
+                       		free(old_queue);
+				goto parser;
                        }
                        free(old_queue);
                        return 0;       

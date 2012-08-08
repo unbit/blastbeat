@@ -34,6 +34,7 @@ static char *find_third_colon(char *buf, size_t len) {
 
 
 int bb_socketio_message(struct bb_session *bbs, char *buf, size_t len) {
+	if (len == 3 && buf[1] == ':' && buf[2] == ':') return 0;
         char *sio_body = find_third_colon(buf, len);
         if (!sio_body) return -1;
         size_t sio_len = len - (sio_body-buf);
@@ -115,6 +116,14 @@ static int socketio_poller(struct bb_session *bbs) {
 	return 1;	
 }
 
+static int socketio_heartbeat(struct bb_session *bbs) {
+	if (bb_websocket_reply(bbs, "2::", 3)) {
+		return 0;
+	}
+	bb_session_reset_timer(bbs, 20, socketio_heartbeat);
+	return -1;
+}
+
 
 int bb_manage_socketio(struct bb_session *bbs) {
 	char *url = bbs->request.headers[0].key;
@@ -129,15 +138,16 @@ int bb_manage_socketio(struct bb_session *bbs) {
 
 	// handshake
 	if (url_len == 13) {
-		char *supported = "xhr-polling";
-		char handshake[36+3+3+1+11];
+		//char *supported = "xhr-polling,websocket";
+		char *supported = "websocket,xhr-polling";
+		char handshake[36+3+3+1+21];
 		uuid_t *session_uuid = (uuid_t *) &bbs->uuid_part1; 
 		uuid_unparse(*session_uuid, handshake);
-		memcpy(handshake+36, ":60:60:", 7);
-		memcpy(handshake+36+7, supported, 11);
+		memcpy(handshake+36, ":30:60:", 7);
+		memcpy(handshake+36+7, supported, 21);
 
         	if (bb_wq_push(bbs, (char *)handshake_headers, strlen(handshake_headers), 0)) return -1;
-        	if (bb_wq_push_copy(bbs, handshake, 54, BB_WQ_FREE)) return -1;
+        	if (bb_wq_push_copy(bbs, handshake, 64, BB_WQ_FREE)) return -1;
 
 		// mark the session as persistent
 		bbs->persistent = 1;
@@ -146,6 +156,51 @@ int bb_manage_socketio(struct bb_session *bbs) {
 
         	return 0;
 
+	}
+	//websocket/a7b23852-2388-41d7-8f20-8cff5be70e82
+	else if (url_len == 13 + 9 + 1 + 36) {
+		uuid_t sio_uuid;
+                char tmp_uuid[37];
+                memcpy(tmp_uuid, url+13 + 9 + 1, 36);
+                tmp_uuid[36] = 0;
+                if (uuid_parse(tmp_uuid, sio_uuid)) return -1;
+                struct bb_session *persistent_bbs = bb_sht_get((char *)sio_uuid);
+
+                if (!persistent_bbs) return -1;
+                // skip non-persistent connection
+                if (!persistent_bbs->persistent) return -1;
+                // skip different vhost
+                if (persistent_bbs->vhost != bbs->vhost) return -1;
+
+		struct bb_connection *bbc = bbs->connection;
+                // close the current session but without freeing the request
+                bbs->stealth = 1;
+                // ...and map the connection
+                persistent_bbs->connection = bbc;
+                // append the session to the connection
+                if (!bbc->sessions_head) {
+                        bbc->sessions_head = persistent_bbs;
+                        bbc->sessions_tail = persistent_bbs;
+                }
+                else {
+			/*
+			persistent_bbs->conn_prev = bbc->sessions_head;
+			persistent_bbs->conn_next = bbc->sessions_head->next;
+                        bbs->conn_prev = bbc->sessions_tail;
+                        bbc->sessions_tail = persistent_bbs;
+                        bbs->conn_prev->next = persistent_bbs;
+			*/
+			bbc->sessions_head = persistent_bbs;
+                }
+
+		bbs->connection->func = bb_websocket_func;
+                bb_send_websocket_handshake(bbs);
+		bb_websocket_reply(bbs, "1::", 3);
+		persistent_bbs->sio_connected = 1;
+		persistent_bbs->sio_realtime = 1;
+		bb_session_reset_timer(persistent_bbs, 20, socketio_heartbeat);
+		bbs->request.no_uwsgi = 1;
+		return 0;
 	}
 	//xhr-polling/a7b23852-2388-41d7-8f20-8cff5be70e82
 	else if (url_len == 13 + 11 + 1 + 36) {
@@ -282,6 +337,11 @@ int bb_socketio_push(struct bb_session *bbs, char type, char *buf, size_t len) {
 	message[3] = ':';
 	
 	memcpy(message+4, buf, len);
+
+	if (bbs->sio_realtime) {
+		return bb_websocket_reply(bbs, message, len+4);
+	}
+
 
 	struct bb_socketio_message *last_bbsm=NULL,*bbsm = bbs->sio_queue;
 

@@ -258,6 +258,7 @@ static int bb_session_headers_complete(http_parser *parser) {
 		if (bb_manage_socketio(bbs)) {
 			return -1;
 		}
+		goto msg;
 	}
 
         if (parser->upgrade) {

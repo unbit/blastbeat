@@ -288,7 +288,6 @@ static void connection_timer_cb(struct ev_loop *loop, struct ev_timer *w, int re
 static void session_timer_cb(struct ev_loop *loop, struct ev_timer *w, int revents) {
 	struct bb_session *bbs = (struct bb_session *) w;
 
-	fprintf(stderr,"IN THE TIMER\n");
 	if (bbs->death_timer_func) {
 		if (bbs->death_timer_func(bbs)) {
 			return;

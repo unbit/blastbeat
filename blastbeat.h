@@ -333,6 +333,7 @@ struct bb_session {
 
 	// mark socket.io connection status
 	int sio_connected;
+	int sio_realtime;
 	// true if a socket.io poller is connected
 	int sio_poller;
 	// the queue of unsent messages
