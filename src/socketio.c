@@ -32,6 +32,60 @@ static char *find_third_colon(char *buf, size_t len) {
         return NULL;
 }
 
+static int bb_socketio_recv_complete(struct bb_session *bbs) {
+	// minimal = X:::
+               if (bbs->request.sio_post_buf_size < 4) return -1;
+                // multipart message ?
+                if (bbs->request.sio_post_buf[0] == '\xef' && bbs->request.sio_post_buf[1] == '\xbf' && bbs->request.sio_post_buf[2] == '\xbd') {
+                        char *ptr = bbs->request.sio_post_buf;
+                        char *watermark = ptr+bbs->request.sio_post_buf_size;
+                        while(ptr < watermark) {
+                                if (*ptr++ != '\xef') return -1;
+                                if (ptr+1 > watermark) return -1;
+                                if (*ptr++ != '\xbf') return -1;
+                                if (ptr+1 > watermark) return -1;
+                                if (*ptr++ != '\xbd') return -1;
+                                if (ptr+1 > watermark) return -1;
+                                char *base_of_num = ptr;
+                                size_t end_of_num = 0;
+                                while(*ptr >= '0' && *ptr<='9') {
+                                        if (ptr+1 > watermark) return -1;
+                                        end_of_num++;
+                                        ptr++;
+                                }
+                                size_t part_len = bb_str2num(base_of_num, end_of_num);
+                                if (*ptr++ != '\xef') return -1;
+                                if (ptr+1 > watermark) return -1;
+                                if (*ptr++ != '\xbf') return -1;
+                                if (ptr+1 > watermark) return -1;
+                                if (*ptr++ != '\xbd') return -1;
+                                if (ptr+1 > watermark) return -1;
+                                if (ptr+part_len > watermark) return -1;
+                                if (bb_socketio_message(bbs->sio_session, ptr, part_len))
+                                        return -1;
+                                ptr+=part_len;
+                        }
+                }
+                else {
+                        if (bb_socketio_message(bbs->sio_session, bbs->request.sio_post_buf, bbs->request.sio_post_buf_size))
+                                return -1;
+                }
+
+	return 0;
+}
+
+static int bb_socketio_recv_body(struct bb_session *bbs, char *buf, size_t len) {
+	char *new_buf = realloc(bbs->request.sio_post_buf, bbs->request.sio_post_buf_size+len);
+        if (!new_buf) {
+                bb_error("realloc()");
+        	return -1;
+        }
+        bbs->request.sio_post_buf = new_buf;
+        memcpy(bbs->request.sio_post_buf+bbs->request.sio_post_buf_size, buf, len);
+        bbs->request.sio_post_buf_size+=len;
+	return 0;
+}
+
 
 int bb_socketio_message(struct bb_session *bbs, char *buf, size_t len) {
 	if (len == 3 && buf[1] == ':' && buf[2] == ':') return 0;
@@ -61,7 +115,7 @@ static const char handshake_headers[] =
 	"HTTP/1.1 200 OK\r\n"
 	"Content-Type: text/plain\r\n"
 	"Connection: keep-alive\r\n"
-	"Content-Length: 54\r\n"
+	"Content-Length: 64\r\n"
 	"Access-Control-Allow-Origin: null\r\n"
 	"Access-Control-Allow-Credentials: true\r\n"
 	"Access-Control-Allow-Methods: POST, GET, OPTIONS\r\n"
@@ -94,6 +148,15 @@ static const char empty_queue[] =
 	"Access-Control-Allow-Methods: POST, GET, OPTIONS\r\n"
 	"Access-Control-Max-Age: 3600\r\n"
 	"Content-Length: 0\r\n\r\n";
+
+static const char message_headers[] =
+	"HTTP/1.1 200 OK\r\n"
+	"Content-Type: text/plain; charset=UTF-8\r\n"
+	"Access-Control-Allow-Origin: *\r\n"
+	"Access-Control-Allow-Credentials: true\r\n"
+	"Access-Control-Allow-Methods: POST, GET, OPTIONS\r\n"
+	"Access-Control-Max-Age: 3600\r\n"
+	"Content-Length: ";
 
 static int socketio_poller(struct bb_session *bbs) {
 	struct bb_socketio_message *bbsm = bbs->sio_queue;
@@ -148,6 +211,7 @@ int bb_manage_socketio(struct bb_session *bbs) {
 
         	if (bb_wq_push(bbs, (char *)handshake_headers, strlen(handshake_headers), 0)) return -1;
         	if (bb_wq_push_copy(bbs, handshake, 64, BB_WQ_FREE)) return -1;
+        	if (bb_wq_push_close(bbs)) return -1;
 
 		// mark the session as persistent
 		bbs->persistent = 1;
@@ -177,19 +241,15 @@ int bb_manage_socketio(struct bb_session *bbs) {
                 bbs->stealth = 1;
                 // ...and map the connection
                 persistent_bbs->connection = bbc;
-                // append the session to the connection
+                // set the session as the main one for the connection
                 if (!bbc->sessions_head) {
                         bbc->sessions_head = persistent_bbs;
                         bbc->sessions_tail = persistent_bbs;
                 }
                 else {
-			/*
-			persistent_bbs->conn_prev = bbc->sessions_head;
-			persistent_bbs->conn_next = bbc->sessions_head->next;
-                        bbs->conn_prev = bbc->sessions_tail;
-                        bbc->sessions_tail = persistent_bbs;
-                        bbs->conn_prev->next = persistent_bbs;
-			*/
+			persistent_bbs->conn_prev = NULL;
+			persistent_bbs->conn_next = bbc->sessions_head;
+			bbc->sessions_head->prev = persistent_bbs;
 			bbc->sessions_head = persistent_bbs;
                 }
 
@@ -230,8 +290,10 @@ int bb_manage_socketio(struct bb_session *bbs) {
 				bbs->sio_session = persistent_bbs;
 				//bbs->sio_bbs = persistent_bbs;
 				bbs->request.no_uwsgi = 1;
-				// buffer following data
-				bbs->request.sio_post = 1;
+				// set socket.io hooks
+				bbs->recv_body = bb_socketio_recv_body;
+				bbs->recv_complete = bb_socketio_recv_complete;
+				// do not report session death
 				bbs->stealth = 1;
 				return 0;
 			}
@@ -298,7 +360,7 @@ ready:
 }
 
 int bb_socketio_send(struct bb_session *bbs, char *buf, size_t len) {
-	const char *headers = " 200 OK\r\nContent-Type: text/plain; charset=UTF-8\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Credentials: true\r\nAccess-Control-Allow-Methods: POST, GET, OPTIONS\r\nAccess-Control-Max-Age: 3600\r\nContent-Length: ";
+
 	char *cl = malloc(MAX_CONTENT_LENGTH);
         if (!cl) {
                 bb_error("unable to allocate memory for socket.io message: malloc()");
@@ -306,16 +368,7 @@ int bb_socketio_send(struct bb_session *bbs, char *buf, size_t len) {
         }
         int chunk_len = snprintf(cl, MAX_CONTENT_LENGTH, "%llu\r\n\r\n", (unsigned long long) len);
 
-	bbs->request.http_major = '0' + bbs->request.parser.http_major;
-        bbs->request.http_minor = '0' + bbs->request.parser.http_minor;
-
-        if (bb_wq_push(bbs, "HTTP/", 5, 0)) return -1;
-        if (bb_wq_push(bbs, &bbs->request.http_major, 1, 0)) return -1;
-        if (bb_wq_push(bbs, ".", 1, 0)) return -1;
-        if (bb_wq_push(bbs, &bbs->request.http_minor, 1, 0)) return -1;
-
-
-	if (bb_wq_push(bbs, (char *)headers, strlen(headers), 0)) return -1;
+	if (bb_wq_push(bbs, (char *)message_headers, strlen(message_headers), 0)) return -1;
 	if (bb_wq_push(bbs, (char *)cl, chunk_len, BB_WQ_FREE)) return -1;
 
 	if (bb_wq_push(bbs, (char *)buf, len, BB_WQ_FREE)) return -1;

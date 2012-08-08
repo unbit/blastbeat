@@ -217,7 +217,6 @@ struct bb_request {
         size_t uwsgi_len;
         off_t uwsgi_pos;
 	// socket.io
-	int sio_post;
 	char *sio_post_buf;
 	size_t sio_post_buf_size;
 };
@@ -369,6 +368,9 @@ struct bb_session {
 	int (*send_body)(struct bb_session *, char *, size_t);
 	int (*send_cache_headers)(struct bb_session *, struct bb_cache_item *);
 	int (*send_cache_body)(struct bb_session *, struct bb_cache_item *);
+
+	int (*recv_body)(struct bb_session *, char *, size_t);
+	int (*recv_complete)(struct bb_session *);
 
 	// special hook to run on session timeout
 	int (*death_timer_func)(struct bb_session *);
@@ -548,3 +550,5 @@ void bb_connection_reset_timer(struct bb_connection *);
 void bb_session_reset_timer(struct bb_session *, uint64_t, int (*)(struct bb_session *));
 
 int bb_socketio_message(struct bb_session *, char *, size_t);
+
+int bb_http_recv_body(struct bb_session *, char *, size_t);

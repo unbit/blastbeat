@@ -3,6 +3,10 @@
 // websocket request spawns from http one
 int bb_websocket_func(struct bb_connection *bbc, char *buf, size_t len) {
 	// remember: in HTTP mode, only one session is allowed
+	if (!bbc->sessions_head) {
+		fprintf(stderr,"BUG bbc->sessions_head is NULL !!!\n");
+		return -1;
+	}
 	return bb_manage_websocket(bbc->sessions_head, buf, len);
 }
 

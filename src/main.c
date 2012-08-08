@@ -367,6 +367,7 @@ struct bb_session *bb_session_new(struct bb_connection *bbc) {
 	bbs->send_headers = bb_http_send_headers;
 	bbs->send_end = bb_http_send_end;
 	bbs->send_body = bb_http_send_body;
+	bbs->recv_body = bb_http_recv_body;
 	bbs->send_cache_headers = bb_http_cache_send_headers;
 	bbs->send_cache_body = bb_http_cache_send_body;
 
