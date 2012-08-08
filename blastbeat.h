@@ -337,6 +337,8 @@ struct bb_session {
 	int sio_poller;
 	// the queue of unsent messages
 	struct bb_socketio_message *sio_queue;
+	// the sio session
+	struct bb_session *sio_session;
 
 	// the request parser structure (http, spdy, websocket, socket.io)
         struct bb_request request;
@@ -542,3 +544,6 @@ int bb_http_cache_send_headers(struct bb_session *, struct bb_cache_item *);
 int bb_http_cache_send_body(struct bb_session *, struct bb_cache_item *);
 
 void bb_connection_reset_timer(struct bb_connection *);
+void bb_session_reset_timer(struct bb_session *, uint64_t, int (*)(struct bb_session *));
+
+int bb_socketio_message(struct bb_session *, char *, size_t);

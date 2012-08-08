@@ -70,6 +70,8 @@ void bb_session_close(struct bb_session *bbs) {
 		bbs->conn_next->prev = bbs->conn_prev;
 	}
 
+	bbs->connection = NULL;
+
 clear:
 
 	if (!bbs->persistent)
@@ -243,6 +245,13 @@ void bb_connection_reset_timer(struct bb_connection *bbc) {
 	ev_timer_stop(blastbeat.loop, &bbc->timeout);
 	ev_timer_set(&bbc->timeout, bbc->timeout_value, 0.0);
 	ev_timer_start(blastbeat.loop, &bbc->timeout);
+}
+
+void bb_session_reset_timer(struct bb_session *bbs, uint64_t t, int(*func)(struct bb_session *)) {
+	ev_timer_stop(blastbeat.loop, &bbs->death_timer);
+	bbs->death_timer_func = func;
+	ev_timer_set(&bbs->death_timer, t, 0.0);
+	ev_timer_start(blastbeat.loop, &bbs->death_timer);
 }
 
 static void bb_rd_callback(struct ev_loop *loop, struct ev_io *w, int revents) {

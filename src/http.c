@@ -295,43 +295,6 @@ msg:
         return 0;
 }
 
-static char *find_third_colon(char *buf, size_t len) {
-	size_t i;
-        int count = 0;
-        for(i=0;i<len;i++) {
-                if (buf[i] == ':') {
-                        count++;
-			if (count == 3) {
-				if ((i+1) > (len-1)) return NULL;
-				return buf+i+1;
-			}
-		}
-        }
-	return NULL;
-} 
-
-int bb_socketio_message(struct bb_session *bbs, char *buf, size_t len) {
-	char *sio_body = find_third_colon(buf, len);
-        if (!sio_body) return -1;
-        size_t sio_len = len - (sio_body-buf);
-        // forward socket.io message to the right session
-        switch(buf[0]) {
-        	case '3':
-                	bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "socket.io/msg", 13, sio_body, sio_len);
-			break;
-                case '4':
-                	bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "socket.io/json", 14, sio_body, sio_len);
-                	break;
-                case '5':
-                	bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "socket.io/event", 15, sio_body, sio_len);
-                        break;
-		default:
-                	fprintf(stderr,"SOCKET.IO MESSAGE TYPE: %c\n", buf[0]);
-			return -1;
-	}
-	return 0;
-}
-
 static int bb_session_request_complete(http_parser *parser) {
         if (parser->upgrade) return 0;
 	struct bb_session *bbs = (struct bb_session *) parser->data;
@@ -364,18 +327,14 @@ static int bb_session_request_complete(http_parser *parser) {
 				if (*ptr++ != '\xbd') return -1;	
 				if (ptr+1 > watermark) return -1;
 				if (ptr+part_len > watermark) return -1;
-/*
-				if (bb_socketio_message(bbsr->sio_bbs, ptr, part_len))
+				if (bb_socketio_message(bbs->sio_session, ptr, part_len))
 					return -1;
-*/
 				ptr+=part_len;
 			}
 		}
 		else {
-/*
-			if (bb_socketio_message(bbsr->sio_bbs, bbsr->sio_post_buf, bbsr->sio_post_buf_size))
+			if (bb_socketio_message(bbs->sio_session, bbs->request.sio_post_buf, bbs->request.sio_post_buf_size))
 				return -1;
-*/
 		}
 	} 
         if (http_should_keep_alive(parser)) {
