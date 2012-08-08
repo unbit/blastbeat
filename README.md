@@ -1,7 +1,7 @@
 The BlastBeat server
 =========
 
-BlastBeat is an high-performance HTTP/HTTPS/SPDY proxy for new generation web apps (websockets, socket.io, comet...).
+BlastBeat is an high-performance HTTP/HTTPS/SPDY proxy for new generation web apps (websockets, socket.io, push, comet...).
 
 It seats on front of your apps and will forward requests to them via a simple ZeroMQ protocol.
 
@@ -527,8 +527,6 @@ end
 * uWSGI Emperor support
 
 * graceful reloads (or dynamic config ?)
-
-* SPDY push
 
 * Some form of timeout management
 
