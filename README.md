@@ -449,7 +449,7 @@ ctx = EM::ZeroMQ::Context.new(1)
 # this will be invoiked whenver a zeromq event is triggered
 class EMTestPullHandler
 
-        # convert a uwsgi packet ro a ruby hash (in Rack format)
+        # convert a uwsgi packet to a ruby hash (in Rack format)
         def uwsgi_to_hash(pkt)
                 ulen, = pkt[1,2].unpack('v')
                 pos = 4
