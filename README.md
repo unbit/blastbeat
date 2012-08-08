@@ -41,6 +41,8 @@ header. SPDY sessions do not support chunked messages)
 
 * **push** (SPDY push service, works like 'headers', see below)
 
+* **cache** place an HTTP response in the cache (see below)
+
 Commands in development/study/analysis
 
 * **move** (move the session to another node)
@@ -393,6 +395,45 @@ socket.send('chunk', zmq.SNDMORE)
 socket.send('')
 ```
 
+## Caching
+
+BlastBeat can create an in-memory cache for each configured virtualhost.
+
+Dealers can write HTTP response in that memory and BlastBeat will directly serve response from there (if available).
+
+Caching is disabled by default, you have to enable it in every virtualhost you need specifying its maximum size
+
+```ini
+[blastbeat:localhost]
+node = application001
+cache = 17
+```
+
+This will create a cache area of 17 Megabytes.
+
+Dealers wanting to store datas in the cache, need to use the 'cache' message type:
+
+```python
+socket.send(sid, zmq.SNDMORE)
+socket.send('cache', zmq.SNDMORE)
+socket.send('/foobar001\r\nHTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<H1>Hello World</h1>')
+```
+
+The 'cache' message body is composed by two areas (delimited by \r\n). The first 'line' has this syntax:
+
+<key> [expires] [flags]
+
+key is the uri BlastBeat will use for the cache item, expires is the number of seconds after the cache item is destroyed.
+
+Flags currently can be 0 or 1, with 1 meaning 'overwrite/update' the cache item (without that, update requests will be discarded)
+
+To remove an item from the cache just pass an empty HTTP response:
+
+```python
+socket.send(sid, zmq.SNDMORE)
+socket.send('cache', zmq.SNDMORE)
+socket.send('/foobar001\r\n')
+```
 
 ## Ruby EventMachine example
 
