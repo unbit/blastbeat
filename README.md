@@ -1,7 +1,7 @@
 The BlastBeat server
 =========
 
-BlastBeat is an high-performance HTTP/HTTPS/SPDY proxy for new generation web apps (websockets, socket.io, comet...).
+BlastBeat is an high-performance HTTP/HTTPS/SPDY proxy for new generation web apps (websockets, socket.io, push, comet...).
 
 It seats on front of your apps and will forward requests to them via a simple ZeroMQ protocol.
 
@@ -40,6 +40,8 @@ header. SPDY sessions do not support chunked messages)
 * **leave** (leave a BlastBeat group)
 
 * **push** (SPDY push service, works like 'headers', see below)
+
+* **cache** (place an HTTP response in the cache, see below)
 
 Commands in development/study/analysis
 
@@ -393,6 +395,47 @@ socket.send('chunk', zmq.SNDMORE)
 socket.send('')
 ```
 
+## Caching
+
+BlastBeat can create an in-memory cache for each configured virtualhost.
+
+Dealers can write HTTP response in that memory and BlastBeat will directly serve response from there (if available).
+
+Caching is disabled by default, you have to enable it in every virtualhost you need specifying its maximum size
+
+```ini
+[blastbeat:localhost]
+node = application001
+cache = 17
+```
+
+This will create a cache area of 17 Megabytes.
+
+Dealers wanting to store datas in the cache, need to use the 'cache' message type:
+
+```python
+socket.send(sid, zmq.SNDMORE)
+socket.send('cache', zmq.SNDMORE)
+socket.send('/foobar001\r\nHTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<H1>Hello World</h1>')
+```
+
+The 'cache' message body is composed by two areas (delimited by \r\n). The first 'line' has this syntax:
+
+```
+<key> [expires] [flags]
+```
+
+key is the uri BlastBeat will use for the cache item, expires is the number of seconds after the cache item is destroyed.
+
+Flags currently can be 0 or 1, with 1 meaning 'overwrite/update' the cache item (without that, update requests will be discarded)
+
+To remove an item from the cache just pass an empty HTTP response:
+
+```python
+socket.send(sid, zmq.SNDMORE)
+socket.send('cache', zmq.SNDMORE)
+socket.send('/foobar001\r\n')
+```
 
 ## Ruby EventMachine example
 
@@ -406,7 +449,7 @@ ctx = EM::ZeroMQ::Context.new(1)
 # this will be invoiked whenver a zeromq event is triggered
 class EMTestPullHandler
 
-        # convert a uwsgi packet ro a ruby hash (in Rack format)
+        # convert a uwsgi packet to a ruby hash (in Rack format)
         def uwsgi_to_hash(pkt)
                 ulen, = pkt[1,2].unpack('v')
                 pos = 4
@@ -484,8 +527,6 @@ end
 * uWSGI Emperor support
 
 * graceful reloads (or dynamic config ?)
-
-* SPDY push
 
 * Some form of timeout management
 
