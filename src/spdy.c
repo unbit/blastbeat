@@ -28,7 +28,7 @@ const char spdy_dictionary[] =
 	".1statusversionurl";
 
 int bb_spdy_func(struct bb_connection *bbc, char *buf, size_t len) {
-        // remember: in HTTP mode, only one session is allowed
+        // remember: in SPDY mode, multiple sessions are allowed
         return bb_manage_spdy(bbc, buf, len);
 }
 
@@ -164,6 +164,15 @@ static int bb_spdy_uwsgi(struct bb_session *bbs, char *ptr, uint16_t hlen) {
         }
 
 	if (!bbs->dealer) return -1;
+
+	// check for mountpoint...
+        // check for socket.io
+        if (!bb_startswith(uri, uri_len, "/socket.io/1/", 13)) {
+                if (bb_manage_socketio(bbs, method, method_len, uri, uri_len)) {
+                        return -1;
+                }
+		return 0;
+        }
 
 	// Ok check for cache here 
 	// ok now check if the virtualhost as a cache store associated
@@ -334,7 +343,7 @@ int bb_spdy_push_headers(struct bb_session *bbs) {
         return 0;
 }
 
-static int bb_spdy_raw_send_headers(struct bb_session *bbs, off_t headers_pos, off_t headers_count, struct bb_http_header *headers, char status[3], char protocol[8]) {
+int bb_spdy_raw_send_headers(struct bb_session *bbs, off_t headers_pos, off_t headers_count, struct bb_http_header *headers, char status[3], char protocol[8], int lower) {
 	int i;
 	// calculate the destination buffer size
 	// zzzzzzzzzzzzzzZZXXstatusXXyyyXXversionXXyyyyyyyy
@@ -342,6 +351,7 @@ static int bb_spdy_raw_send_headers(struct bb_session *bbs, off_t headers_pos, o
 	size_t spdy_len = 48;
 	for(i=headers_pos;i<headers_count;i++) {
 		spdy_len += 2 + headers[i].keylen + 2 + headers[i].vallen;
+		if (!lower) continue;
 		size_t j;
 		for(j=0;j<headers[i].keylen;j++) {
 			headers[i].key[j] = tolower((int) headers[i].key[j]);
@@ -437,15 +447,15 @@ static int bb_spdy_send_headers(struct bb_session *bbs, char *unused_buf, size_t
         if (snprintf(proto, 9, "HTTP/%d.%d", bbs->response.parser.http_major, bbs->response.parser.http_minor) != 8) {
                 return -1;
         }
-	return bb_spdy_raw_send_headers(bbs, 1, bbs->response.header_pos+1, bbs->response.headers, status, proto);
+	return bb_spdy_raw_send_headers(bbs, 1, bbs->response.header_pos+1, bbs->response.headers, status, proto, 1);
 }
 
 
 static int bb_spdy_send_cache_headers(struct bb_session *bbs, struct bb_cache_item *bbci) {
-	return bb_spdy_raw_send_headers(bbs, 0, bbci->headers_count, bbci->headers, bbci->status, bbci->protocol);
+	return bb_spdy_raw_send_headers(bbs, 0, bbci->headers_count, bbci->headers, bbci->status, bbci->protocol, 1);
 }
 
-static int bb_spdy_send_body(struct bb_session *bbs, char *buf, size_t len) {
+int bb_spdy_send_body(struct bb_session *bbs, char *buf, size_t len) {
 
 	// gracefully stop if the session is already closed
 	if (bbs->fin) return 0;
@@ -513,7 +523,7 @@ static int bb_spdy_send_cache_body(struct bb_session *bbs, struct bb_cache_item 
 	return 0;
 }
 
-static int bb_spdy_send_end(struct bb_session *bbs) {
+int bb_spdy_send_end(struct bb_session *bbs) {
 	if (bbs->fin) return 0;
 	return bb_spdy_send_body(bbs, "", 0);
 }
@@ -607,7 +617,8 @@ static int bb_manage_spdy_msg(struct bb_connection *bbc) {
 			}
 			// check for dealer as the host: header could be missing !!!
 			if (!bbs->dealer) return -1;
-			bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "uwsgi", 5, bbs->request.uwsgi_buf, bbs->request.uwsgi_pos);
+			if (!bbs->request.no_uwsgi)
+				bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "uwsgi", 5, bbs->request.uwsgi_buf, bbs->request.uwsgi_pos);
 			break;
 		// RST
 		case 0x03:

@@ -523,7 +523,7 @@ struct bb_group *bb_ght_get(struct bb_virtualhost *, char *, size_t);
 void bb_initialize_request(struct bb_session *);
 void bb_initialize_response(struct bb_session *);
 
-int bb_manage_socketio(struct bb_session *);
+int bb_manage_socketio(struct bb_session *, char *, size_t, char *, size_t);
 int bb_socketio_push(struct bb_session *, char, char *, size_t);
 int bb_socketio_send(struct bb_session *, char *, size_t);
 
@@ -552,3 +552,7 @@ void bb_session_reset_timer(struct bb_session *, uint64_t, int (*)(struct bb_ses
 int bb_socketio_message(struct bb_session *, char *, size_t);
 
 int bb_http_recv_body(struct bb_session *, char *, size_t);
+
+int bb_spdy_raw_send_headers(struct bb_session *, off_t, off_t, struct bb_http_header *, char[], char[], int);
+int bb_spdy_send_body(struct bb_session *, char *, size_t);
+int bb_spdy_send_end(struct bb_session *);

@@ -121,6 +121,16 @@ static const char handshake_headers[] =
 	"Access-Control-Allow-Methods: POST, GET, OPTIONS\r\n"
 	"Access-Control-Max-Age: 3600\r\n\r\n";
 
+static const struct bb_http_header handshake_spdy_headers[] = {
+	{ .key = "content-type", .keylen = 12, .value = "text/plain", .vallen = 10 },
+	{ .key = "connection", .keylen = 10, .value = "keep-alive", .vallen = 10 },
+	{ .key = "content-length", .keylen = 14, .value = "52", .vallen = 2 },
+	{ .key = "access-control-allow-origin", .keylen = 27, .value = "null", .vallen = 4 },
+	{ .key = "access-control-allow-credentials", .keylen = 32, .value = "true", .vallen = 4 },
+	{ .key = "access-control-allow-methods", .keylen = 28, .value = "POST, GET, OPTIONS", .vallen = 18 },
+	{ .key = "access-control-max-age", .keylen = 22, .value = "3600", .vallen = 4 },
+};
+
 static const char post_headers[] =
 	"HTTP/1.1 200 OK\r\n"
 	"Connection: close\r\n"
@@ -188,36 +198,46 @@ static int socketio_heartbeat(struct bb_session *bbs) {
 }
 
 
-int bb_manage_socketio(struct bb_session *bbs) {
-	char *url = bbs->request.headers[0].key;
-	size_t url_len = bbs->request.headers[0].keylen;
+int bb_manage_socketio(struct bb_session *bbs, char *method, size_t method_len, char *url, size_t url_len) {
 
 	char *query_string = memchr(url, '?', url_len);
 	if (query_string) {
 		url_len = query_string-url;
 	}
 
-	fprintf(stderr,"SOCKET.IO %s %.*s\n", http_method_str(bbs->request.parser.method), url_len, url);
+	fprintf(stderr,"SOCKET.IO %.*s %.*s\n", method_len, method, url_len, url);
 
 	// handshake
 	if (url_len == 13) {
-		//char *supported = "xhr-polling,websocket";
-		char *supported = "websocket,xhr-polling";
+
 		char handshake[36+3+3+1+21];
+
 		uuid_t *session_uuid = (uuid_t *) &bbs->uuid_part1; 
 		uuid_unparse(*session_uuid, handshake);
-		memcpy(handshake+36, ":30:60:", 7);
-		memcpy(handshake+36+7, supported, 21);
 
-        	if (bb_wq_push(bbs, (char *)handshake_headers, strlen(handshake_headers), 0)) return -1;
-        	if (bb_wq_push_copy(bbs, handshake, 64, BB_WQ_FREE)) return -1;
-        	if (bb_wq_push_close(bbs)) return -1;
+		if (bbs->stream_id > 0) {
+			// only websockets are supported under SPDY 
+			char *supported = "websocket";
+                        memcpy(handshake+36, ":30:60:", 7);
+                        memcpy(handshake+36+7, supported, 9);
+			if (bb_spdy_raw_send_headers(bbs, 0, 7, handshake_spdy_headers, "200", "HTTP/1.1", 0)) return -1;
+			if (bb_spdy_send_body(bbs, handshake, 52)) return -1;
+			if (bb_spdy_send_end(bbs)) return -1;
+		}
+		else {
+			char *supported = "websocket,xhr-polling";
+			memcpy(handshake+36, ":30:60:", 7);
+			memcpy(handshake+36+7, supported, 21);
+        		if (bb_wq_push(bbs, (char *)handshake_headers, strlen(handshake_headers), 0)) return -1;
+        		if (bb_wq_push_copy(bbs, handshake, 64, BB_WQ_FREE)) return -1;
+			// do not close as smart browser could use keep-alive
+        		//if (bb_wq_push_close(bbs)) return -1;
+		}
 
 		// mark the session as persistent
 		bbs->persistent = 1;
 		// do not forward the request to dealers
 		bbs->request.no_uwsgi = 1;
-
         	return 0;
 
 	}
@@ -282,7 +302,7 @@ int bb_manage_socketio(struct bb_session *bbs) {
 		// TODO check for already running pollers...
 		
 		// sending messages does not require remapping the session
-		if (bbs->request.parser.method == HTTP_POST) {
+		if (!bb_strcmp(method, method_len, "POST",4)) {
 			if (!persistent_bbs->sio_connected) return -1;
 			if (bb_wq_push(bbs, (char *)post_headers, strlen(post_headers), 0)) return -1;
 			//if (bb_wq_push_close(bbs)) return -1;	
@@ -299,9 +319,6 @@ int bb_manage_socketio(struct bb_session *bbs) {
 			}
 			return -1;	
 		}
-
-		//store the current method
-		unsigned char request_method = bbs->request.parser.method;
 
 		// is it already the correct session ?
 		if (bbs == persistent_bbs) goto ready;
@@ -326,7 +343,7 @@ int bb_manage_socketio(struct bb_session *bbs) {
 
 ready:
 		// ok we are ready
-		if (request_method == HTTP_GET) {
+		if (!bb_strcmp(method, method_len, "GET", 3)) {
 			// already handshaked, this is a poll
 			if (persistent_bbs->sio_connected) {
 				// do not forward the request to the dealer

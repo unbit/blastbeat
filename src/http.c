@@ -245,7 +245,8 @@ static int bb_session_headers_complete(http_parser *parser) {
 	// check for mountpoint...
 	// check for socket.io
 	if (!bb_startswith(bbs->request.headers[0].key, bbs->request.headers[0].keylen, "/socket.io/1/", 13)) {
-		if (bb_manage_socketio(bbs)) {
+		char *method = http_method_str(bbs->request.parser.method);
+		if (bb_manage_socketio(bbs,  method, strlen(method), bbs->request.headers[0].key, bbs->request.headers[0].keylen)) {
 			return -1;
 		}
 		goto msg;
