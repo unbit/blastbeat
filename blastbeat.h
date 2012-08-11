@@ -557,3 +557,5 @@ int bb_http_recv_body(struct bb_session *, char *, size_t);
 int bb_spdy_raw_send_headers(struct bb_session *, off_t, off_t, struct bb_http_header *, char[], char[], int);
 int bb_spdy_send_body(struct bb_session *, char *, size_t);
 int bb_spdy_send_end(struct bb_session *);
+
+int bb_nonblock(int);

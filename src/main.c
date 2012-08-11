@@ -133,63 +133,6 @@ void bb_connection_close(struct bb_connection *bbc) {
 	blastbeat.active_connections--;
 }
 
-void bb_error_exit(char *what) {
-	perror(what);
-	exit(1);
-}
-
-void bb_error(char *what) {
-	perror(what);
-}
-
-int bb_nonblock(int fd) {
-	int arg;
-
-        arg = fcntl(fd, F_GETFL, NULL);
-        if (arg < 0) {
-                bb_error("fcntl()");
-		return -1;
-        }
-        arg |= O_NONBLOCK;
-        if (fcntl(fd, F_SETFL, arg) < 0) {
-                bb_error("fcntl()");
-                return -1;
-        }
-
-	return 0;
-}
-
-size_t bb_str2num(char *str, int len) {
-
-        int i;
-        size_t num = 0;
-
-        size_t delta = pow(10, len);
-
-        for (i = 0; i < len; i++) {
-                delta = delta / 10;
-                num += delta * (str[i] - 48);
-        }
-
-        return num;
-}
-
-
-int bb_stricmp(char *str1, size_t str1len, char *str2, size_t str2len) {
-	if (str1len != str2len) return -1;
-	return strncasecmp(str1, str2, str1len);
-}
-
-int bb_strcmp(char *str1, size_t str1len, char *str2, size_t str2len) {
-	if (str1len != str2len) return -1;
-	return memcmp(str1, str2, str1len);
-}
-
-int bb_startswith(char *str1, size_t str1len, char *str2, size_t str2len) {
-	if (str1len < str2len) return -1;
-	return memcmp(str1, str2, str2len);
-}
-
 int bb_set_dealer(struct bb_session *bbs, char *name, size_t len) {
 	// get the virtualhost from the hostname
 	struct bb_virtualhost *vhost = bb_vhost_get(name, len);
@@ -429,7 +372,7 @@ static void bb_accept_callback(struct ev_loop *loop, struct ev_io *w, int revent
 	ev_io_start(loop, &bbc->reader.reader);
 }
 
-// currently it only prints the number of active sessions
+// currently it only prints the number of active sessions and connections
 static void stats_cb(struct ev_loop *loop, struct ev_timer *w, int revents) {
 	fprintf(stderr,"active sessions: %llu active connections %llu\n", (unsigned long long) blastbeat.active_sessions, 
 		(unsigned long long) blastbeat.active_connections);

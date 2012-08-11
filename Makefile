@@ -2,6 +2,7 @@ CFLAGS+=-g -O2 -Wall -Wno-strict-aliasing
 LIBS+=-lzmq -lssl -lcrypto -lev -lz -luuid
 
 OBJ=src/main.o
+OBJ+=src/utils.o
 OBJ+=src/config.o
 OBJ+=src/zmq.o
 OBJ+=src/http.o
