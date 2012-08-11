@@ -130,6 +130,7 @@ void bb_connection_close(struct bb_connection *bbc) {
 	}
 
 	free(bbc);
+	blastbeat.active_connections--;
 }
 
 void bb_error_exit(char *what) {
@@ -423,12 +424,15 @@ static void bb_accept_callback(struct ev_loop *loop, struct ev_io *w, int revent
 	// set the deafult timeout
 	bbc->timeout_value = blastbeat.timeout;
 
+	blastbeat.active_connections++;
+
 	ev_io_start(loop, &bbc->reader.reader);
 }
 
 // currently it only prints the number of active sessions
 static void stats_cb(struct ev_loop *loop, struct ev_timer *w, int revents) {
-	fprintf(stderr,"active sessions: %llu\n", (unsigned long long) blastbeat.active_sessions);
+	fprintf(stderr,"active sessions: %llu active connections %llu\n", (unsigned long long) blastbeat.active_sessions, 
+		(unsigned long long) blastbeat.active_connections);
 }
 
 // the healthcheck system

@@ -438,6 +438,7 @@ struct blastbeat_server {
 
 	uint64_t max_sessions;
 	uint64_t active_sessions;
+	uint64_t active_connections;
 
 	void *router;
 	int zmq_fd;
