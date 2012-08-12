@@ -1,0 +1,54 @@
+<html>
+<head>
+<script type="text/javascript" src="http://unbit.github.com/socket.io.js"></script>
+<script>
+  // CHANGE HERE
+  var socket = io.connect('http://quantal64.local:8080/');
+  socket.on('connect', function() {
+      socket.emit('welcome');
+  });
+
+  socket.on('welcome', function (data) {
+	alert('Welcome to the socket.io BlastBeat test');
+  });
+
+  socket.on('foobar', function (data) {
+	alert('received the "foobar" event');
+  });
+
+  socket.on('foobar2', function (data) {
+	alert('received the "foobar2" event');
+  });
+
+  socket.on('foobar3', function (data) {
+	alert('received the "foobar3" event');
+  });
+
+  socket.on('message', function (data) {
+	if (typeof(data) == 'object') {
+		alert('received object: ' + data['test']);
+	}
+	else {
+		alert('received message: ' + data);
+	}
+  });
+
+  
+</script>
+</head>
+<body>
+<h1>socket.io test</h1>
+<button onCLick="socket.emit('foobar');">emit the 'foobar' event</button>
+<button onCLick="socket.emit('foobar2');">emit the 'foobar2' event</button>
+<button onCLick="socket.emit('foobar3');">emit the 'foobar3' event</button>
+<br/>
+<button onCLick="socket.send('foobar');">send the 'foobar' message</button>
+<button onCLick="socket.send('foobar2');">send the 'foobar2' message</button>
+<button onCLick="socket.send('foobar3');">send the 'foobar3' message</button>
+<br/>
+<button onCLick="socket.json.send({'test':'foobar'});">send the {'test':'foobar'} JSON message</button>
+<button onCLick="socket.json.send({'test':'foobar2'});">send the {'test':'foobar2'} JSON message</button>
+<button onCLick="socket.json.send({'test':'foobar3'});">send the {'test':'foobar3'} JSON message</button>
+<br/>
+</body>
+</html>
