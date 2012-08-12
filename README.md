@@ -43,6 +43,14 @@ header. SPDY sessions do not support chunked messages)
 
 * **cache** (place an HTTP response in the cache, see below)
 
+* **socket.io/event** (receive/send a socket.io event)
+
+* **socket.io/msg** (receive/send a socket.io message)
+
+* **socket.io/json** (receive/send a socket.io JSON-encoded object)
+
+* **socket.io/end** (gracefully destroy a socket.io session)
+
 Commands in development/study/analysis
 
 * **move** (move the session to another node)
@@ -57,7 +65,7 @@ Commands in development/study/analysis
 
 * **auth** (stronger authentication for dealers)
 
-* **socket.io** (automagically manage socket.io requests)
+
 
 
 feel free to propose your ideas...
@@ -273,6 +281,34 @@ zmq.send('<script type="text/javascript" src="/test1.js"></script>')
 zmq.send(sid, zmq.SNDMORE)
 zmq.send('end', zmq.SNDMORE)
 zmq.send('')
+```
+
+## socket.io
+
+socket.io is a javascript library emulating sockets abstracting the underlying subsystem.
+
+BlastBeat supports socket.io over websockets and via xhr-polling, that should allows support for
+all of the major browsers out there.
+
+Handshaking, connection management, heartbeats and all of the internals of socket.io are managed by BlastBeat,
+you only need to worry about the logic of your app.
+
+Each socket.io connection is mapped to a BlastBeat session, whenever a peer send a message you will receive one of
+this three message types (based on the content of the socket.io message)
+
+socket.io/event (for a socket.io event)
+
+socket.io/msg (for a socket.io raw message)
+
+socket.io/json (for a socket.io json object)
+
+you can use the same three message type for sending socket.io messages from teh server (dealer) to clients.
+
+An additional message type 'socket.io/end' allows you to gracefully close socket.io sessions
+
+```python
+if msg_type == 'socket.io/json':
+        socket.send_multipart([sid, 'socket.io/event', '{"name":"news","args":"JSON"}'])
 ```
 
 ## using the sid (for concurrency)
