@@ -279,6 +279,8 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
                         }
 
 			on_cmd("end") {
+				bbs->persistent = 0;
+				fprintf(stderr,"ENDING %p\n", bbs);
 				if (bbs->send_end(bbs))
 					bb_connection_close(bbs->connection);
                                 goto next;
@@ -308,6 +310,14 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
                                         bbs->persistent = 0;
                                         bb_connection_close(bbs->connection);
                                 }
+                                goto next;
+                        }
+
+			on_cmd("socket.io/end") {
+                                bb_socketio_push(bbs, '0', "", 0);
+                                // destroy the whole session
+                                bbs->persistent = 0;
+                                bb_connection_close(bbs->connection);
                                 goto next;
                         }
 

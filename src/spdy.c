@@ -110,6 +110,8 @@ static int bb_spdy_uwsgi(struct bb_session *bbs, char *ptr, uint16_t hlen) {
 
 	uint16_t i,klen,vlen;
 
+	char *port = NULL;
+
 	char *method = NULL;
 	size_t method_len = 0;
 	char *uri = NULL;
@@ -171,7 +173,7 @@ static int bb_spdy_uwsgi(struct bb_session *bbs, char *ptr, uint16_t hlen) {
                 if (bb_manage_socketio(bbs, method, method_len, uri, uri_len)) {
                         return -1;
                 }
-		return 0;
+		goto msg;
         }
 
 	// Ok check for cache here 
@@ -182,7 +184,8 @@ static int bb_spdy_uwsgi(struct bb_session *bbs, char *ptr, uint16_t hlen) {
                 if (ret == BLASTBEAT_CACHE_ERROR) return -1;
         }
 
-	char *port = strchr(bbs->vhost->name, ':');
+msg:
+	port = strchr(bbs->vhost->name, ':');
 
         if (port) {
                	if (add_uwsgi_item(bbs, "SERVER_NAME", 11, bbs->vhost->name, port-(bbs->vhost->name), 0)) return -1;

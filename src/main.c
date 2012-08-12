@@ -71,6 +71,8 @@ void bb_session_close(struct bb_session *bbs) {
 	}
 
 	bbs->connection = NULL;
+	bbs->conn_prev = NULL;
+	bbs->conn_next = NULL;
 
 clear:
 
@@ -89,6 +91,9 @@ connection close is triggered:
 */
 
 void bb_connection_close(struct bb_connection *bbc) {
+	// a connection could be null (for persistent sessions...)
+	if (!bbc) return;
+
 	// stop the timer
 	ev_timer_stop(blastbeat.loop, &bbc->timeout);
 	// stop I/O
@@ -111,10 +116,11 @@ void bb_connection_close(struct bb_connection *bbc) {
 	}
 
 	// close sessions	
-	struct bb_session *bbs = bbc->sessions_head;
+	struct bb_session *next_bbs, *bbs = bbc->sessions_head;
 	while(bbs) {
+		next_bbs = bbs->conn_next;
 		bb_session_close(bbs);
-		bbs = bbs->next;
+		bbs = next_bbs;
 	}
 
 	// remove the writer queue
@@ -237,6 +243,8 @@ static void session_timer_cb(struct ev_loop *loop, struct ev_timer *w, int reven
 			return;
 		}
 	}
+	// completely destroy the session
+	bbs->persistent = 0;
 	bb_session_close(bbs);
 }
 

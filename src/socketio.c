@@ -88,6 +88,9 @@ static int bb_socketio_recv_body(struct bb_session *bbs, char *buf, size_t len) 
 
 
 int bb_socketio_message(struct bb_session *bbs, char *buf, size_t len) {
+
+	if (bbs->sio_session) bbs = bbs->sio_session;
+
 	if (len == 3 && buf[1] == ':' && buf[2] == ':') return 0;
         char *sio_body = find_third_colon(buf, len);
         if (!sio_body) return -1;
@@ -201,13 +204,16 @@ static int socketio_heartbeat(struct bb_session *bbs) {
 int bb_manage_socketio(struct bb_session *bbs, char *method, size_t method_len, char *url, size_t url_len) {
 
 	char *query_string = memchr(url, '?', url_len);
+	size_t query_string_len = 0;
 	if (query_string) {
+		query_string_len = url_len - (query_string-url);
 		url_len = query_string-url;
 	}
 
-	fprintf(stderr,"SOCKET.IO %.*s %.*s\n", method_len, method, url_len, url);
+	//fprintf(stderr,"SOCKET.IO %p %.*s %.*s\n", bbs, method_len, method, url_len, url);
 
 	// handshake
+	// /socket.io/1/
 	if (url_len == 13) {
 
 		char handshake[36+3+3+1+21];
@@ -220,7 +226,7 @@ int bb_manage_socketio(struct bb_session *bbs, char *method, size_t method_len, 
 			char *supported = "websocket";
                         memcpy(handshake+36, ":30:60:", 7);
                         memcpy(handshake+36+7, supported, 9);
-			if (bb_spdy_raw_send_headers(bbs, 0, 7, handshake_spdy_headers, "200", "HTTP/1.1", 0)) return -1;
+			if (bb_spdy_raw_send_headers(bbs, 0, 7, (struct bb_http_header *) handshake_spdy_headers, "200", "HTTP/1.1", 0)) return -1;
 			if (bb_spdy_send_body(bbs, handshake, 52)) return -1;
 			if (bb_spdy_send_end(bbs)) return -1;
 		}
@@ -230,77 +236,104 @@ int bb_manage_socketio(struct bb_session *bbs, char *method, size_t method_len, 
 			memcpy(handshake+36+7, supported, 21);
         		if (bb_wq_push(bbs, (char *)handshake_headers, strlen(handshake_headers), 0)) return -1;
         		if (bb_wq_push_copy(bbs, handshake, 64, BB_WQ_FREE)) return -1;
-			// do not close as smart browser could use keep-alive
-        		//if (bb_wq_push_close(bbs)) return -1;
+			// close the connection too... (simplify resource management)
+        		if (bb_wq_push_close(bbs)) return -1;
 		}
 
 		// mark the session as persistent
 		bbs->persistent = 1;
-		// do not forward the request to dealers
-		bbs->request.no_uwsgi = 1;
+	
+		// 30 seconds from now to finalize the handshake
+		bb_session_reset_timer(bbs, 30, NULL);
+
+		// now send the uwsgi pocket, to allow the dealer to close the session
         	return 0;
 
 	}
-	//websocket/a7b23852-2388-41d7-8f20-8cff5be70e82
-	else if (url_len == 13 + 9 + 1 + 36) {
-		uuid_t sio_uuid;
-                char tmp_uuid[37];
-                memcpy(tmp_uuid, url+13 + 9 + 1, 36);
-                tmp_uuid[36] = 0;
-                if (uuid_parse(tmp_uuid, sio_uuid)) return -1;
-                struct bb_session *persistent_bbs = bb_sht_get((char *)sio_uuid);
 
-                if (!persistent_bbs) return -1;
-                // skip non-persistent connection
-                if (!persistent_bbs->persistent) return -1;
-                // skip different vhost
-                if (persistent_bbs->vhost != bbs->vhost) return -1;
+	// now we try to get the transport and session
+	off_t i;
+	char *transport = NULL;
+	size_t transport_len = 0;
 
+	for(i=13;i<url_len;i++) {
+		if (url[i] == '/') {
+			transport = url+13;
+			transport_len = i-13;
+			break;
+		}
+	}
+
+	if (!transport) return -1;
+
+	char *session_id = NULL;
+	size_t session_id_len = 0;
+	for(i=13+transport_len+1;i<url_len;i++) {
+		if (url[i] == '/') {
+                        session_id = transport+transport_len+1;
+                        session_id_len = i-(13+transport_len+1);
+                        break;
+                }
+	}
+
+	if (!session_id) {
+		session_id = transport+transport_len+1;
+		session_id_len = url_len - (13+transport_len+1);
+	}
+
+	if (session_id_len == 0 || session_id_len > 36) return -1;
+
+	uuid_t sio_uuid;
+        char tmp_uuid[37];
+	memcpy(tmp_uuid, session_id, session_id_len); tmp_uuid[36] = 0;
+	if (uuid_parse(tmp_uuid, sio_uuid)) return -1;
+	
+	struct bb_session *persistent_bbs = bb_sht_get((char *)sio_uuid);
+	if (!persistent_bbs) return -1;
+
+	// destroy the session !!!
+	// check for non-persisten-sessions or non-vhost matching too
+	if (transport_len == 0 || !bb_strcmp(query_string, query_string_len, "?disconnect", 12) || !persistent_bbs->persistent || persistent_bbs->vhost != bbs->vhost) {
+		persistent_bbs->persistent = 0;
+		// DANGER !!! avoid destroying the current session too early
+		if (persistent_bbs != bbs) {
+			bb_session_close(persistent_bbs);
+		}
+		return -1;
+	}
+
+	// already the right session
+	if (persistent_bbs == bbs) goto ready;
+	// do not report 'end' message on end of session
+        bbs->stealth = 1;
+ready:
+
+	if (!bb_strcmp(transport, transport_len, "websocket", 9)) {
+
+		// map the connection to allow sending from the persistent session
+		// to the current connection
 		struct bb_connection *bbc = bbs->connection;
-                // close the current session but without freeing the request
-                bbs->stealth = 1;
-                // ...and map the connection
-                persistent_bbs->connection = bbc;
-                // set the session as the main one for the connection
-                if (!bbc->sessions_head) {
-                        bbc->sessions_head = persistent_bbs;
-                        bbc->sessions_tail = persistent_bbs;
-                }
-                else {
-			persistent_bbs->conn_prev = NULL;
-			persistent_bbs->conn_next = bbc->sessions_head;
-			bbc->sessions_head->prev = persistent_bbs;
-			bbc->sessions_head = persistent_bbs;
-                }
+        	persistent_bbs->connection = bbc;
 
 		bbs->connection->func = bb_websocket_func;
+		// set the persistent session
+		bbs->sio_session = persistent_bbs;
+
                 bb_send_websocket_handshake(bbs);
 		bb_websocket_reply(bbs, "1::", 3);
+
 		persistent_bbs->sio_connected = 1;
 		persistent_bbs->sio_realtime = 1;
+
 		bb_session_reset_timer(persistent_bbs, 20, socketio_heartbeat);
 		bbs->request.no_uwsgi = 1;
+
 		return 0;
 	}
-	//xhr-polling/a7b23852-2388-41d7-8f20-8cff5be70e82
-	else if (url_len == 13 + 11 + 1 + 36) {
 
 
-		uuid_t sio_uuid;
-		char tmp_uuid[37];
-		memcpy(tmp_uuid, url+13 + 11 + 1, 36);
-		tmp_uuid[36] = 0;
-		if (uuid_parse(tmp_uuid, sio_uuid)) return -1;
-		struct bb_session *persistent_bbs = bb_sht_get((char *)sio_uuid);
-		
-		if (!persistent_bbs) return -1;
-		// skip non-persistent connection
-		if (!persistent_bbs->persistent) return -1;
-		// skip different vhost
-		if (persistent_bbs->vhost != bbs->vhost) return -1;
+	if (!bb_strcmp(transport, transport_len, "xhr-polling", 11)) {
 
-		// TODO check for already running pollers...
-		
 		// sending messages does not require remapping the session
 		if (!bb_strcmp(method, method_len, "POST",4)) {
 			if (!persistent_bbs->sio_connected) return -1;
@@ -320,32 +353,19 @@ int bb_manage_socketio(struct bb_session *bbs, char *method, size_t method_len, 
 			return -1;	
 		}
 
-		// is it already the correct session ?
-		if (bbs == persistent_bbs) goto ready;
-
-		// ok, prepare for the heavy part:
-		// get the current connection
-		struct bb_connection *bbc = bbs->connection;
-		// close the current session but without freeing the request
-		bbs->stealth = 1;
-		// ...and map the connection
-		persistent_bbs->connection = bbc;
-		// append the session to the connection
-		if (!bbc->sessions_head) {
-                	bbc->sessions_head = persistent_bbs;
-                	bbc->sessions_tail = persistent_bbs;
-        	}
-        	else {
-                	bbs->conn_prev = bbc->sessions_tail;
-                	bbc->sessions_tail = persistent_bbs;
-                	bbs->conn_prev->next = persistent_bbs;
-        	}
-
-ready:
 		// ok we are ready
 		if (!bb_strcmp(method, method_len, "GET", 3)) {
 			// already handshaked, this is a poll
 			if (persistent_bbs->sio_connected) {
+
+
+				// check if a poller is already running
+				if (persistent_bbs->sio_poller) return -1;	
+
+        			// ...and map the connection
+				struct bb_connection *bbc = bbs->connection;
+        			persistent_bbs->connection = bbc;
+
 				// do not forward the request to the dealer
 				bbs->request.no_uwsgi = 1;
 				struct bb_socketio_message *bbsm = persistent_bbs->sio_queue;

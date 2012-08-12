@@ -81,8 +81,8 @@ int bb_manage_websocket_header(struct bb_session *bbs, char byte1, char byte2) {
 }
 
 void bb_websocket_pass(struct bb_session *bbs, char *buf, ssize_t len) {
-	if (bbs->sio_connected) {
-		bb_socketio_message(bbs, buf, len);
+	if (bbs->sio_session && bbs->sio_session->sio_connected) {
+		bb_socketio_message(bbs->sio_session, buf, len);
 		return;
 	}
         bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "websocket", 9, buf, len);
