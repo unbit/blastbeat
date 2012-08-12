@@ -285,7 +285,7 @@ zmq.send('')
 
 ## socket.io
 
-socket.io is a javascript library emulating sockets abstracting the underlying subsystem.
+socket.io is a javascript library emulating sockets into the browser abstracting the underlying subsystem.
 
 BlastBeat supports socket.io over websockets and via xhr-polling, that should allows support for
 all of the major browsers out there.
@@ -305,6 +305,9 @@ socket.io/json (for a socket.io json object)
 you can use the same three message type for sending socket.io messages from teh server (dealer) to clients.
 
 An additional message type 'socket.io/end' allows you to gracefully close socket.io sessions
+
+An example receiving a json message and responding with an event (remember socket.io events are json object with
+at least 'name' and 'args' attributes)
 
 ```python
 if msg_type == 'socket.io/json':
