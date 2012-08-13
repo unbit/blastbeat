@@ -69,6 +69,7 @@ struct bb_dealer {
 	size_t len;
         time_t last_seen;
 	int status;
+	int spawn_sent;
 	uint64_t load;
         struct bb_dealer *next;
 };
@@ -543,6 +544,7 @@ void bb_vhost_push_acceptor(struct bb_virtualhost *, struct bb_acceptor *);
 
 int bb_manage_cache(struct bb_session *, char *, size_t);
 void bb_cache_store(struct bb_session *bbs, char *buf, size_t, int);
+struct bb_cache_item *bb_cache_get(struct bb_virtualhost *, char *, size_t, int);
 
 int null_cb(http_parser *);
 int null_b_cb(http_parser *, const char *, size_t);

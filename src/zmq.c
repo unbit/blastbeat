@@ -17,7 +17,7 @@ routing:
 
 */
 
-#define on_cmd(x) if (!strncmp(command, x, command_len))
+#define on_cmd(x, y) if (!bb_strcmp(command, command_len, x, y))
 
 #define foreach_session_in_group	if (route[0] != '@') {\
 					in_group = 0;\
@@ -172,13 +172,13 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 			int in_group = 1;
 			size_t msg_len = zmq_msg_size(&msg[3]);
 
-			on_cmd("body") {
+			on_cmd("body", 4) {
 				if (bbs->send_body(bbs, zmq_msg_data(&msg[3]), msg_len))
 					bb_connection_close(bbs->connection);
 				goto next;
                         }
 
-			on_cmd("websocket") {
+			on_cmd("websocket", 9) {
 				if (route) {
 					foreach_session_in_group
                                 		if (bb_websocket_reply(bbgs->session, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3])))
@@ -190,7 +190,7 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
                                 goto next;
                         }
 
-			on_cmd("chunk") {
+			on_cmd("chunk", 5) {
 				if (route) {
 					foreach_session_in_group
                                 		if (bb_manage_chunk(bbgs->session, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3])))
@@ -203,7 +203,7 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
                         }
 
 
-			on_cmd("headers") {
+			on_cmd("headers", 7) {
 				bb_initialize_response(bbs);
 				int res = http_parser_execute(&bbs->response.parser, &bb_http_response_parser_settings, zmq_msg_data(&msg[3]), msg_len);
 				if (res != msg_len) {
@@ -215,7 +215,7 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 				goto next;
                         }
 
-			on_cmd("push") {
+			on_cmd("push", 4) {
 				// only connected sessions can push
 				if (!bbs->connection) goto next;
 				bb_initialize_response(bbs);
@@ -229,7 +229,7 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 				goto next;
 			}
 
-			on_cmd("retry") {
+			on_cmd("retry", 5) {
                                 if (bbs->hops >= blastbeat.max_hops) {
                                         bb_connection_close(bbs->connection);
                                         goto next;
@@ -243,7 +243,7 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
                                 goto next;
                         }
 
-			on_cmd("msg") {
+			on_cmd("msg", 3) {
 				if (!route) goto next;
 				// check if it is a direct message
 				if (route[0] == '@') {
@@ -267,26 +267,41 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 				goto next;
 			}
 
-			on_cmd("join") {
+			on_cmd("join", 4) {
                                 if (bb_join_group(bbs, zmq_msg_data(&msg[3]), msg_len))
                                 	bb_session_close(bbs);
                                 goto next;
                         }
 
-			on_cmd("cache") {
+			on_cmd("cache", 5) {
 				bb_cache_store(bbs, zmq_msg_data(&msg[3]), msg_len, 0);
                                 goto next;
                         }
 
-			on_cmd("end") {
+			on_cmd("fragcache", 9) {
+				bb_cache_store(bbs, zmq_msg_data(&msg[3]), msg_len, 1);
+                                goto next;
+                        }
+
+
+			on_cmd("end", 3) {
 				bbs->persistent = 0;
-				fprintf(stderr,"ENDING %p\n", bbs);
 				if (bbs->send_end(bbs))
 					bb_connection_close(bbs->connection);
                                 goto next;
                         }
 
-			on_cmd("socket.io/event") {
+
+			on_cmd("frag", 4) {
+				struct bb_cache_item *bbci = bb_cache_get(bbs->vhost, zmq_msg_data(&msg[3]), msg_len, 1);
+				if (!bbci) goto next;
+                                if (bbs->send_body(bbs, bbci->body, bbci->body_len))
+                                        bb_connection_close(bbs->connection);
+                                goto next;
+                        }
+
+
+			on_cmd("socket.io/event", 15) {
 				if (bb_socketio_push(bbs, '5', zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]))) {
 					// destroy the whole session
 					bbs->persistent = 0;		
@@ -295,7 +310,7 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 				goto next;
 			}
 
-			on_cmd("socket.io/msg") {
+			on_cmd("socket.io/msg", 13) {
                                 if (bb_socketio_push(bbs, '3', zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]))) {
                                         // destroy the whole session
                                         bbs->persistent = 0;
@@ -304,7 +319,7 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
                                 goto next;
                         }
 
-			on_cmd("socket.io/json") {
+			on_cmd("socket.io/json", 14) {
                                 if (bb_socketio_push(bbs, '4', zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]))) {
                                         // destroy the whole session
                                         bbs->persistent = 0;
@@ -313,7 +328,7 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
                                 goto next;
                         }
 
-			on_cmd("socket.io/end") {
+			on_cmd("socket.io/end", 13) {
                                 bb_socketio_push(bbs, '0', "", 0);
                                 // destroy the whole session
                                 bbs->persistent = 0;

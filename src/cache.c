@@ -243,6 +243,7 @@ void bb_cache_store(struct bb_session *bbs, char *buf, size_t len, int frag) {
 
 	// 0->key 1->expires 2->flags 3->uninteresting 4->end
 	int status = 0;
+	uint32_t cht_pos;
 
 	char *key = buf;
 	char *expires = NULL;
@@ -305,15 +306,27 @@ void bb_cache_store(struct bb_session *bbs, char *buf, size_t len, int frag) {
 	char *http_buf = buf+(i+1);
 	size_t http_buf_len = len-(i+1);
 
-	http_parser parser;
-	http_parser_init(&parser, HTTP_RESPONSE);
-
 	struct bb_cache_item *bbci = malloc(sizeof(struct bb_cache_item));
 	if (!bbci) {
 		bb_error("malloc()");
 		return;
 	}
 	memset(bbci, 0, sizeof(struct bb_cache_item));
+
+	if (frag) {
+		bbci->body = malloc(http_buf_len);
+		if (!bbci->body) {
+			bb_error("malloc()");
+			goto clear;
+		}		
+		memcpy(bbci->body, http_buf, http_buf_len);
+		bbci->body_len = http_buf_len;
+		goto store;
+	}
+
+	http_parser parser;
+	http_parser_init(&parser, HTTP_RESPONSE);
+
 	bbci->last_was_value = 1;
 	parser.data = bbci;
 
@@ -334,8 +347,9 @@ void bb_cache_store(struct bb_session *bbs, char *buf, size_t len, int frag) {
 	}
 	memcpy(bbci->http_first_line, http_buf, bbci->http_first_line_len);
 
+store:
         // get the hash
-        uint32_t cht_pos = djb2_hash_cache(key, keylen, bbs->vhost->cht_size);
+        cht_pos = djb2_hash_cache(key, keylen, bbs->vhost->cht_size);
         // get the ht entry
         struct bb_cache_entry *bbce = &bbs->vhost->cache[cht_pos];
 
@@ -347,6 +361,7 @@ void bb_cache_store(struct bb_session *bbs, char *buf, size_t len, int frag) {
 
 	memcpy(bbci->key, key, keylen);
         bbci->keylen = keylen;
+	bbci->frag = frag;
 	bbci->entry = bbce;
         bbci->next = NULL;
 

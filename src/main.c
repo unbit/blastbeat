@@ -402,6 +402,10 @@ static void pinger_cb(struct ev_loop *loop, struct ev_timer *w, int revents) {
 			}
 			bb_raw_zmq_send_msg(bbd->identity, bbd->len, "", 0, "ping", 4, "", 0);
 		}
+		if (!bbd->spawn_sent) {
+			bb_raw_zmq_send_msg(bbd->identity, bbd->len, "", 0, "spawn", 5, "", 0);
+			bbd->spawn_sent = 1;
+		}
 		bbd = bbd->next;
 	}
 }
