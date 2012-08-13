@@ -51,6 +51,8 @@ header. SPDY sessions do not support chunked messages)
 
 * **socket.io/end** (gracefully destroy a socket.io session)
 
+* **spawn** (sent from BlastBeat to dealers whenever it spawn)
+
 Commands in development/study/analysis
 
 * **move** (move the session to another node)
@@ -65,6 +67,9 @@ Commands in development/study/analysis
 
 * **auth** (stronger authentication for dealers)
 
+* **fragcache** (store a fragment in the cache)
+             
+* **frag** (send a fragment to the client)
 
 
 
