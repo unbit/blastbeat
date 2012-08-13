@@ -398,7 +398,7 @@ static void pinger_cb(struct ev_loop *loop, struct ev_timer *w, int revents) {
 		if (delta > blastbeat.ping_freq) {
 			if (delta > (blastbeat.ping_freq * 3) && bbd->status == BLASTBEAT_DEALER_AVAILABLE) {
 				bbd->status = BLASTBEAT_DEALER_OFF;
-				fprintf(stderr,"mode \"%s\" is OFF\n", bbd->identity);
+				fprintf(stderr,"node \"%s\" is OFF\n", bbd->identity);
 			}
 			bb_raw_zmq_send_msg(bbd->identity, bbd->len, "", 0, "ping", 4, "", 0);
 		}
