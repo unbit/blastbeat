@@ -3,7 +3,7 @@
 <script type="text/javascript" src="http://unbit.github.com/socket.io.js"></script>
 <script>
   // CHANGE HERE
-  var socket = io.connect('http://quantal64.local:8080/');
+  var socket = io.connect('http://quantal64.local:8080/foobar');
   socket.on('connect', function() {
       socket.emit('welcome');
   });

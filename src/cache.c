@@ -150,19 +150,20 @@ static uint32_t djb2_hash_cache(char *key, size_t len, uint32_t mask) {
 
 }
 
-static int bb_cache_compare(struct bb_cache_item *bbci, char *name, size_t len) {
+static int bb_cache_compare(struct bb_cache_item *bbci, char *name, size_t len, int frag) {
         if (bbci->keylen != len) return 0;
+	if (bbci->frag != frag) return 0;
         return !memcmp(bbci->key, name, len);
 }
 
 // get a cache item
-struct bb_cache_item *bb_cache_get(struct bb_virtualhost *vhost, char *name, size_t len) {
+struct bb_cache_item *bb_cache_get(struct bb_virtualhost *vhost, char *name, size_t len, int frag) {
 
         uint32_t cht_pos = djb2_hash_cache(name, len, vhost->cht_size);
         struct bb_cache_entry *bbce = &vhost->cache[cht_pos];
         struct bb_cache_item *bbci = bbce->head;
         while(bbci) {
-                if (bb_cache_compare(bbci, name, len)) {
+                if (bb_cache_compare(bbci, name, len, frag)) {
                         return bbci;
                 }
                 bbci = bbci->next;
@@ -231,7 +232,7 @@ if key is right and the body is present (an empty body, means: destroy the item)
 the second one will run a http parser, if it is valid the cache_item is added to the hashtable
 
 */
-void bb_cache_store(struct bb_session *bbs, char *buf, size_t len) {
+void bb_cache_store(struct bb_session *bbs, char *buf, size_t len, int frag) {
 	if (bbs->vhost->cache_size == 0) return;
 
 	// check for space
@@ -290,7 +291,7 @@ void bb_cache_store(struct bb_session *bbs, char *buf, size_t len) {
 	uint64_t expires_num = bb_str2num(expires, expires_len);
 	uint32_t flags_num = bb_str2num(flags, flags_len);
 
-	struct bb_cache_item *already = bb_cache_get(bbs->vhost, key, keylen);
+	struct bb_cache_item *already = bb_cache_get(bbs->vhost, key, keylen, frag);
 	if (already) {
 		// empty body, destroy the item
 		if (len-(i+1) <= 0) {
@@ -375,7 +376,7 @@ clear:
 
 int bb_manage_cache(struct bb_session *bbs, char *key, size_t keylen) {
 
-	struct bb_cache_item *bbci = bb_cache_get(bbs->vhost, key, keylen);
+	struct bb_cache_item *bbci = bb_cache_get(bbs->vhost, key, keylen, 0);
 	if (!bbci) return BLASTBEAT_CACHE_MISS;
 
 	// first send headers

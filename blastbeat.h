@@ -121,6 +121,9 @@ struct bb_cache_item {
 	char *key;
 	size_t keylen;
 
+	// is it a fragment ?
+	int frag;
+
 	// useful for SPDY
 	char protocol[8];
 	char status[3];
@@ -539,7 +542,7 @@ struct bb_virtualhost *bb_vhost_get(char *, size_t);
 void bb_vhost_push_acceptor(struct bb_virtualhost *, struct bb_acceptor *);
 
 int bb_manage_cache(struct bb_session *, char *, size_t);
-void bb_cache_store(struct bb_session *bbs, char *buf, size_t);
+void bb_cache_store(struct bb_session *bbs, char *buf, size_t, int);
 
 int null_cb(http_parser *);
 int null_b_cb(http_parser *, const char *, size_t);

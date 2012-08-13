@@ -274,7 +274,7 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
                         }
 
 			on_cmd("cache") {
-				bb_cache_store(bbs, zmq_msg_data(&msg[3]), msg_len);
+				bb_cache_store(bbs, zmq_msg_data(&msg[3]), msg_len, 0);
                                 goto next;
                         }
 

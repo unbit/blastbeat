@@ -6,12 +6,13 @@ extern struct blastbeat_server blastbeat;
 
 socket.io management
 
-/socket.io/1/ -> send handshake response using the bb sid, mark the sid as persistent
+/socket.io/1/ -> send handshake response using the bb sid, mark the sid as persistent (generate a uwsgi message)
 
-/socket.io/1/xhr-polling/<sid> -> recover the session id and move the current request to it
-parse the body and generate the socket.io/type message
+/socket.io/1/xhr-polling/<sid> -> (check the sid if configured as persistent)
+	GET -> dequeue a message from the poller queue, or wait upto 30 seconds before responsding with an empty message
+	POST -> add a message to the queue, if already polling, feed a TIMER_EVENT
 
-/socket.io/1/websocket/<sid> -> recover the session id and move the current request to it
+/socket.io/1/websocket/<sid> -> (check the sid if configured as persistent)
 parse each websocket message twice (one for websocket and one for socket.io format) and generate
 the socket.io/type message
 
