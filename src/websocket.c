@@ -90,7 +90,6 @@ void bb_websocket_pass(struct bb_session *bbs, char *buf, ssize_t len) {
 
 int bb_manage_websocket(struct bb_session *bbs, char *buf, ssize_t len) {
 
-
 	bbs->request.websocket_message_queue = realloc(bbs->request.websocket_message_queue, bbs->request.websocket_message_queue_len + len);
 	memcpy(bbs->request.websocket_message_queue + bbs->request.websocket_message_queue_len, buf, len);
 	bbs->request.websocket_message_queue_len += len;
@@ -121,20 +120,20 @@ parser:
 		// manage size
 		case 2:
 			if (bbs->request.websocket_message_size == 126) {
-				if (bbs->request.websocket_message_queue_len < 2 + (bbs->request.websocket_message_has_mask*4) + 2) {
+				if (bbs->request.websocket_message_queue_len < 2 + 2 + (bbs->request.websocket_message_has_mask*4)) {
 					return 0;
 				}
 				uint16_t size = 0;
-				memcpy(&size, bbs->request.websocket_message_queue + 2 + (bbs->request.websocket_message_has_mask*4), 2);
+				memcpy(&size, bbs->request.websocket_message_queue + 2, 2);
 				bbs->request.websocket_message_size = ntohs(size);
 				bbs->request.websocket_message_queue_pos += 2;
 			}
 			else if (bbs->request.websocket_message_size == 127) {
-				if (bbs->request.websocket_message_queue_len < 2 + (bbs->request.websocket_message_has_mask*4) + 8) {
+				if (bbs->request.websocket_message_queue_len < 2 + 8 + (bbs->request.websocket_message_has_mask*4)) {
 					return 0;
 				}
 				uint64_t size = 0;
-				memcpy(&size, bbs->request.websocket_message_queue + 2 + (bbs->request.websocket_message_has_mask*4), 8);
+				memcpy(&size, bbs->request.websocket_message_queue + 2, 8);
 				bbs->request.websocket_message_size = ntohll(size);
 				bbs->request.websocket_message_queue_pos += 8;
 			}
@@ -148,7 +147,7 @@ parser:
                        if (bbs->request.websocket_message_has_mask) {
                                uint64_t i;
                                char *ptr = bbs->request.websocket_message_queue + bbs->request.websocket_message_queue_pos;
-                               char *mask = bbs->request.websocket_message_queue + 2;
+                               char *mask = ptr-4;
                                for(i=0;i<bbs->request.websocket_message_size;i++) {
                                        ptr[i] = ptr[i] ^ mask[i%4];
                                }
