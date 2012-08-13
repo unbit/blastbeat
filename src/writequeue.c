@@ -81,7 +81,7 @@ void bb_wq_callback(struct ev_loop *loop, struct ev_io *w, int revents) {
 			goto end;
 		}
 		if (wlen < bbwi->len-bbwi->pos) {
-			bbwi->pos-=wlen;
+			bbwi->pos+=wlen;
 			return;
 		}
 next:
