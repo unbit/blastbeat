@@ -76,7 +76,7 @@ static int bb_socketio_recv_complete(struct bb_session *bbs) {
 }
 
 static int bb_socketio_recv_body(struct bb_session *bbs, char *buf, size_t len) {
-	char *new_buf = realloc(bbs->request.sio_post_buf, bbs->request.sio_post_buf_size+len);
+	char *new_buf = bb_realloc(bbs->request.sio_post_buf, bbs->request.sio_post_buf_size, len);
         if (!new_buf) {
                 bb_error("realloc()");
         	return -1;
@@ -99,13 +99,13 @@ int bb_socketio_message(struct bb_session *bbs, char *buf, size_t len) {
         // forward socket.io message to the right session
         switch(buf[0]) {
                 case '3':
-                        bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "socket.io/msg", 13, sio_body, sio_len);
+                        bb_zmq_send_msg(bbs, bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "socket.io/msg", 13, sio_body, sio_len);
                         break;
                 case '4':
-                        bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "socket.io/json", 14, sio_body, sio_len);
+                        bb_zmq_send_msg(bbs, bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "socket.io/json", 14, sio_body, sio_len);
                         break;
                 case '5':
-                        bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "socket.io/event", 15, sio_body, sio_len);
+                        bb_zmq_send_msg(bbs, bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "socket.io/event", 15, sio_body, sio_len);
                         break;
                 default:
                         fprintf(stderr,"SOCKET.IO MESSAGE TYPE: %c\n", buf[0]);
@@ -180,7 +180,7 @@ static int socketio_poller(struct bb_session *bbs) {
 			return 0;
                 }
                 bbs->sio_queue = bbsm->next;
-                free(bbsm);
+                bb_free(bbsm, sizeof(struct bb_socketio_message));
 		bbs->sio_poller = 0;
                 return 1;
 	}
@@ -375,7 +375,7 @@ ready:
                         			fprintf(stderr,"unable to deliver message\n");
                 			}
                 			persistent_bbs->sio_queue = bbsm->next;
-                			free(bbsm);
+                			bb_free(bbsm, sizeof(struct bb_socketio_message));
 					return 0;
 				}
 				// start the poller
@@ -399,7 +399,7 @@ ready:
 
 int bb_socketio_send(struct bb_session *bbs, char *buf, size_t len) {
 
-	char *cl = malloc(MAX_CONTENT_LENGTH);
+	char *cl = bb_alloc(MAX_CONTENT_LENGTH);
         if (!cl) {
                 bb_error("unable to allocate memory for socket.io message: malloc()");
                 return -1;
@@ -416,7 +416,7 @@ int bb_socketio_send(struct bb_session *bbs, char *buf, size_t len) {
 
 int bb_socketio_push(struct bb_session *bbs, char type, char *buf, size_t len) {
 
-	char *message = malloc(4 + len);
+	char *message = bb_alloc(4 + len);
 	if (!message) {
 		bb_error("malloc()");
 		return -1;
@@ -441,9 +441,9 @@ int bb_socketio_push(struct bb_session *bbs, char type, char *buf, size_t len) {
 		bbsm = bbsm->next;
 	}
 
-	bbsm = malloc(sizeof(struct bb_socketio_message));
+	bbsm = bb_alloc(sizeof(struct bb_socketio_message));
 	if (!bbsm) {
-		free(message);
+		bb_free(message, len+4);
 		bb_error("malloc()");
 		return -1;
 	}

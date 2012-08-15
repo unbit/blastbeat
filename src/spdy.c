@@ -87,9 +87,9 @@ static int bb_spdy_pass_body(struct bb_connection *bbc) {
 	return -1;
 found:
 	if (!bbs->dealer) return -1;	
-	bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "body", 4, bbc->spdy_body_buf, bbc->spdy_length);
+	bb_zmq_send_msg(bbs, bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "body", 4, bbc->spdy_body_buf, bbc->spdy_length);
 	if (bbc->spdy_flags == 0x01) {
-		bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "body", 4, "", 0);
+		bb_zmq_send_msg(bbs, bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "body", 4, "", 0);
 	}
 	return 0;
 
@@ -98,7 +98,7 @@ found:
 static int bb_spdy_uwsgi(struct bb_session *bbs, char *ptr, uint16_t hlen) {
 
         // allocate the first chunk (leaving space for 4 bytes uwsgi header)
-        bbs->request.uwsgi_buf = malloc(4096);
+        bbs->request.uwsgi_buf = bb_alloc(4096);
         if (!bbs->request.uwsgi_buf) {
                 bb_error("malloc()");
                 return -1;
@@ -211,7 +211,7 @@ static char *bb_spdy_deflate(z_stream *z, char *buf, size_t len, size_t *dlen) {
 
 	// calculate the amount of bytes needed for output (+30 should be enough)
 	// this memory will be freed by the writequeue engine
-	char *dbuf = malloc(len+30);
+	char *dbuf = bb_alloc(len+30);
 	if (!dbuf) {
 		bb_error("malloc()");
 		return NULL;
@@ -245,7 +245,8 @@ int bb_spdy_push_headers(struct bb_session *bbs) {
                 }
         }
 
-        char *buf = malloc(spdy_len);
+	// will be freed below after a partial copy to the writequeue
+        char *buf = bb_alloc(spdy_len);
         if (!buf) {
                 bb_error("malloc()");
                 return -1;
@@ -266,10 +267,10 @@ int bb_spdy_push_headers(struct bb_session *bbs) {
         // stream_id
 	// increase the push queue
         bbc->spdy_even_stream_id+=2;
-	char *tmp_queue = realloc(bbs->push_queue, bbs->push_queue_len+4);
+	char *tmp_queue = bb_realloc(bbs->push_queue, bbs->push_queue_len, 4);
 	if (!tmp_queue) {
 		bb_error("realloc()");
-		free(buf);
+		bb_free(buf, spdy_len);
 		return -1;	
 	}
 	bbs->push_queue = tmp_queue;
@@ -335,9 +336,12 @@ int bb_spdy_push_headers(struct bb_session *bbs) {
         void *ll = &l;
         memcpy(buf+5, ll+1, 3);
 
-        if (bb_wq_push(bbs, buf, 18, BB_WQ_FREE)) {
+        if (bb_wq_push_copy(bbs, buf, 18, BB_WQ_FREE)) {
+		bb_free(buf, spdy_len); 
                 return -1;
         }
+
+	bb_free(buf, spdy_len); 
 
         if (bb_wq_push(bbs, compresses_headers, ch_len, BB_WQ_FREE)) {
                 return -1;
@@ -361,7 +365,8 @@ int bb_spdy_raw_send_headers(struct bb_session *bbs, off_t headers_pos, off_t he
 		}
 	}	
 
-	char *buf = malloc(spdy_len);
+	// will be freed later after a copy to the writequeue
+	char *buf = bb_alloc(spdy_len);
 	if (!buf) {
 		bb_error("malloc()");
 		return -1;
@@ -430,9 +435,12 @@ int bb_spdy_raw_send_headers(struct bb_session *bbs, off_t headers_pos, off_t he
 	void *ll = &l;
 	memcpy(buf+5, ll+1, 3);
 
-	if (bb_wq_push(bbs, buf, 14, BB_WQ_FREE)) {
+	if (bb_wq_push_copy(bbs, buf, 14, BB_WQ_FREE)) {
+		bb_free(buf, spdy_len);
 		return -1;
 	}
+
+	bb_free(buf, spdy_len);
 
 	if (bb_wq_push(bbs, compresses_headers, ch_len, BB_WQ_FREE)) {
 		return -1;
@@ -463,7 +471,8 @@ int bb_spdy_send_body(struct bb_session *bbs, char *buf, size_t len) {
 	// gracefully stop if the session is already closed
 	if (bbs->fin) return 0;
 
-	char *spdy = malloc(len + 8);
+	// will be freed by the writequeue
+	char *spdy = bb_alloc(len + 8);
 	if (!spdy) {
 		bb_error("malloc()");
 		return -1;
@@ -496,12 +505,12 @@ int bb_spdy_send_body(struct bb_session *bbs, char *buf, size_t len) {
 		return -1;
 	if (bbs->push_queue_len > 0) {
 		if (bbs->push_queue_len <= 4) {
-			free(bbs->push_queue);
+			bb_free(bbs->push_queue, bbs->push_queue_len);
 			bbs->push_queue = NULL;
 			bbs->push_queue_len = 0;
 			return 0;
 		}
-		char *tmp_queue = realloc(bbs->push_queue, bbs->push_queue_len-4);
+		char *tmp_queue = bb_realloc(bbs->push_queue, bbs->push_queue_len, -4);
 		if (!tmp_queue) {
 			bb_error("realloc()");
 			return -1;
@@ -543,13 +552,13 @@ static int bb_spdy_inflate(struct bb_session *bbs, char *buf, size_t len) {
 	bbc->spdy_z_in.next_in = (Bytef *) buf + 10;
 
 	while(bbc->spdy_z_in.avail_in > 0) {
-		// calculate destination buffer
-		dbuf_len+=4096;
-		char *tmp_buf = realloc(dbuf, dbuf_len);
+		// calculate destination buffer (must be freed !!!)
+		char *tmp_buf = bb_realloc(dbuf, dbuf_len, 4096);
 		if (!tmp_buf) {
 			bb_error("malloc()");
 			return -1;
 		}
+		dbuf_len+=4096;
 		dbuf = tmp_buf;
 
 		bbc->spdy_z_in.avail_out = 4096;
@@ -572,11 +581,12 @@ static int bb_spdy_inflate(struct bb_session *bbs, char *buf, size_t len) {
 	hlen = ntohs(hlen);
 
 	// generate a uwsgi packet from spdy headers
-	// transform str sizes to little endian
 	// TODO add a safety check on max buffer size
-	if (bb_spdy_uwsgi(bbs, dbuf+2, hlen)) return -1;
-
-	return 0;
+	int ret = 0;
+	if (bb_spdy_uwsgi(bbs, dbuf+2, hlen)) ret = -1;
+	// free the inflated buffer
+	bb_free(dbuf, dbuf_len);
+	return ret;
 }
 
 static void bb_spdy_header(struct bb_connection *bbc) {
@@ -621,7 +631,7 @@ static int bb_manage_spdy_msg(struct bb_connection *bbc) {
 			// check for dealer as the host: header could be missing !!!
 			if (!bbs->dealer) return -1;
 			if (!bbs->request.no_uwsgi)
-				bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "uwsgi", 5, bbs->request.uwsgi_buf, bbs->request.uwsgi_pos);
+				bb_zmq_send_msg(bbs, bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "uwsgi", 5, bbs->request.uwsgi_buf, bbs->request.uwsgi_pos);
 			break;
 		// RST
 		case 0x03:
@@ -643,7 +653,7 @@ static int bb_manage_spdy_msg(struct bb_connection *bbc) {
 			break;
 		// PING
 		case 0x06:
-			pong = malloc(8+4);
+			pong = bb_alloc(8+4);
 			if (!pong) {
 				bb_error("pong malloc()");
 				return -1;
@@ -651,10 +661,14 @@ static int bb_manage_spdy_msg(struct bb_connection *bbc) {
 			memcpy(pong, "\x80\x02\x00\x06\x00\x00\x00\x04", 8);
 			memcpy(pong + 8, bbc->spdy_body_buf, 4);
 			if (bb_wq_dumb_push(bbc, pong, 12, BB_WQ_FREE)) {
-				free(pong);
+				bb_free(pong, 8+4);
                 		return -1;
         		}			
 			break;
+		// GOAWAY
+		case 0x07:
+			// just force connection close
+			return -1;
 		default:
 			fprintf(stderr,"UNKNOWN SPDY MESSAGE %d!!!\n", bbc->spdy_type);
 			return -1;
@@ -678,9 +692,9 @@ int bb_manage_spdy(struct bb_connection *bbc, char *buf, ssize_t len) {
 					if (bbc->spdy_length > 0) {
 						bbc->spdy_status = 1;
 						if (bbc->spdy_body_buf) {
-							free(bbc->spdy_body_buf);
+							bb_free(bbc->spdy_body_buf, bbc->spdy_length);
 						}
-						bbc->spdy_body_buf = malloc(bbc->spdy_length);
+						bbc->spdy_body_buf = bb_alloc(bbc->spdy_length);
 						break;
 					}
 					return -1;
@@ -701,7 +715,7 @@ int bb_manage_spdy(struct bb_connection *bbc, char *buf, ssize_t len) {
 						return -1;
 					}
 					// reset SPDY parser
-					free(bbc->spdy_body_buf);
+					bb_free(bbc->spdy_body_buf, bbc->spdy_length);
 					bbc->spdy_body_buf = NULL;
 					bbc->spdy_body_pos = 0;
 					bbc->spdy_length = 0;

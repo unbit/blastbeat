@@ -8,7 +8,7 @@ int add_uwsgi_item(struct bb_session *bbs, char *key, uint16_t keylen, char *val
 
 mem:
 	if (bbs->request.uwsgi_pos + 2 + (hh*5) + keylen + 2 + vallen > bbs->request.uwsgi_len) {
-		char *new_buf = realloc(bbs->request.uwsgi_buf, bbs->request.uwsgi_len + 4096);
+		char *new_buf = bb_realloc(bbs->request.uwsgi_buf, bbs->request.uwsgi_len, 4096);
 		if (!new_buf) {
 			bb_error("relloac()");
 			return -1;
@@ -56,7 +56,7 @@ mem:
 int bb_uwsgi(struct bb_session *bbs) {
 
 	// allocate the first chunk (leaving space for 4 bytes uwsgi header)
-	bbs->request.uwsgi_buf = malloc(4096);
+	bbs->request.uwsgi_buf = bb_alloc(4096);
 	if (!bbs->request.uwsgi_buf) {
 		bb_error("malloc()");
 		return -1;

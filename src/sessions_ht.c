@@ -112,6 +112,7 @@ void bb_sht_remove(struct bb_session *bbs) {
 	if (bbs->vhost) {
 		bbs->vhost->active_sessions--;
 	}
+
 	if (bbs->dealer) {
 		bbs->dealer->load--;
 	}

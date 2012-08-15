@@ -17,7 +17,7 @@ extern struct blastbeat_server blastbeat;
 */
 static int wq_push(struct bb_writer *bbw, char *buf, size_t len, int flags, struct bb_session *bbs) {
 
-	struct bb_writer_item *bbwi = malloc(sizeof(struct bb_writer_item));
+	struct bb_writer_item *bbwi = bb_alloc(sizeof(struct bb_writer_item));
 	if (!bbwi) {
 		bb_error("unable to allocate memory for a writequeue item: malloc()");
 		return -1;
@@ -51,9 +51,9 @@ static void wq_decapitate(struct bb_writer *bbw) {
 		bbw->head = NULL;
 	}
 	if ((head->flags & BB_WQ_FREE) && head->len > 0) {
-		free(head->buf);
+		bb_free(head->buf, head->len);
 	}
-	free(head);
+	bb_free(head, sizeof(struct bb_writer_item));
 }
 
 void bb_wq_callback(struct ev_loop *loop, struct ev_io *w, int revents) {
@@ -154,7 +154,7 @@ int bb_wq_push_copy(struct bb_session *bbs, char *buf, size_t len, int flags) {
 	struct bb_connection *bbc = bbs->connection;
 	if (!bbc) return -1;
 
-	char *new_buf = malloc(len);
+	char *new_buf = bb_alloc(len);
 	if (!new_buf) {
 		bb_error("unable to allocate memory for writequeue item: malloc()");
 		return -1;

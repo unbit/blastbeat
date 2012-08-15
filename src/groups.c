@@ -84,7 +84,7 @@ static void bb_group_destroy(struct bb_group *bbg) {
                 bbg->next->prev = bbg->prev;
         }
 
-	free(bbg);
+	bb_free(bbg, sizeof(struct bb_group));
 }
 
 
@@ -118,7 +118,7 @@ int bb_session_leave_group(struct bb_session *bbs, struct bb_group *bbg) {
 			if (bbsg == bbs->groups) {
 				bbs->groups = next;
 			}
-			free(bbsg);
+			bb_free(bbsg, sizeof(struct bb_session_group));
 			goto found;
 		}
 		bbsg = bbsg->next;
@@ -140,7 +140,7 @@ found:
 			if (bbgs == bbg->sessions) {
 				bbg->sessions = next;
 			}
-			free(bbgs);
+			bb_free(bbgs, sizeof(struct bb_session_group));
 			break;
 		}
 		bbgs = bbgs->next;
@@ -164,7 +164,7 @@ static struct bb_group *ght_add(struct bb_virtualhost *vhost, char *name, size_t
         // get the ht entry
         struct bb_group_entry *bbge = &vhost->ght[ht_pos];
 
-	struct bb_group *bbg = malloc(sizeof(struct bb_group));
+	struct bb_group *bbg = bb_alloc(sizeof(struct bb_group));
 	if (!bbg) {
 		bb_error("malloc()");
 		return NULL;
@@ -220,7 +220,7 @@ int bb_join_group(struct bb_session *bbs, char *name, size_t len) {
 	}
 
 	// create a new session mapped in a group
-	bbgs = malloc(sizeof(struct bb_group_session));
+	bbgs = bb_alloc(sizeof(struct bb_group_session));
 	if (!bbgs) {
 		bb_error("malloc()");
 		return -1;
@@ -250,7 +250,7 @@ found:
 	}
 
 	// map the group into the session
-	bbsg = malloc(sizeof(struct bb_session_group));
+	bbsg = bb_alloc(sizeof(struct bb_session_group));
         if (!bbsg) {
                 bb_error("malloc()");
                 return -1;

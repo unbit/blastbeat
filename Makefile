@@ -15,6 +15,8 @@ OBJ+=src/writequeue.o
 OBJ+=src/groups.o
 OBJ+=src/socketio.o
 OBJ+=src/cache.o
+OBJ+=src/pipe.o
+OBJ+=src/memory.o
 OBJ+=http-parser/http_parser.o
 
 

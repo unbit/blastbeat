@@ -119,8 +119,12 @@ struct bb_group_session {
 
 struct bb_cache_item {
 	ev_timer expires;
+	uint64_t expires_num;
 	char *key;
 	size_t keylen;
+	
+	// this is tracked for accounting memory
+	size_t len;
 
 	// is it a fragment ?
 	int frag;
@@ -144,6 +148,8 @@ struct bb_cache_item {
 	
 	char *body;
 	size_t body_len;
+
+	struct bb_virtualhost *vhost;
 
 	struct bb_cache_entry *entry;
 	struct bb_cache_item *prev;
@@ -170,6 +176,7 @@ struct bb_virtualhost {
 	// the cache store
 	uint32_t cht_size;
 	uint64_t cache_size;
+	uint64_t allocated_cache;
 	struct bb_cache_entry *cache;
 	
 	uint64_t max_sessions;
@@ -305,6 +312,18 @@ struct bb_socketio_message {
 	struct bb_socketio_message *next;
 };
 
+struct bb_pipe {
+	struct bb_session *session;
+	char dest[BLASTBEAT_MAX_GROUPNAME_LEN];
+	size_t dest_len;
+
+	int on_websocket;
+	int on_body;
+
+	struct bb_pipe *prev;
+	struct bb_pipe *next;
+};
+
 // a blastbeat session (in HTTP it is mapped to a connection, in SPDY it is mapped to a stream)
 struct bb_session {
 	// destroy the session whenever this timer expires
@@ -365,6 +384,10 @@ struct bb_session {
 
 	// subscribed group list
 	struct bb_session_group *groups;
+
+	// pipes list
+	struct bb_pipe *pipes_head;
+	struct bb_pipe *pipes_tail;
 
 	// hooks
 	int (*send_headers)(struct bb_session *, char *, size_t);
@@ -433,6 +456,7 @@ struct blastbeat_server {
 	char *zmq;
 
 	float ping_freq;
+	float stats_freq;
 	int max_hops;
 
 	char *uid;
@@ -443,6 +467,11 @@ struct blastbeat_server {
 	uint64_t max_sessions;
 	uint64_t active_sessions;
 	uint64_t active_connections;
+
+	uint64_t max_memory;
+	uint64_t allocated_memory;
+	uint64_t startup_memory;
+	uint64_t cache_memory;
 
 	void *router;
 	int zmq_fd;
@@ -499,8 +528,8 @@ struct bb_session *bb_session_new(struct bb_connection *);
 void bb_connection_close(struct bb_connection *);
 void bb_session_close(struct bb_session *);
 
-void bb_raw_zmq_send_msg(char *, size_t, char *, size_t, char *, size_t, char *, size_t);
-void bb_zmq_send_msg(char *, size_t, char *, size_t, char *, size_t, char *, size_t);
+void bb_raw_zmq_send_msg(struct bb_session *, char *, size_t, char *, size_t, char *, size_t, char *, size_t);
+void bb_zmq_send_msg(struct bb_session *, char *, size_t, char *, size_t, char *, size_t, char *, size_t);
 void bb_zmq_receiver(struct ev_loop *, struct ev_io *, int);
 
 void bb_ssl_info_cb(SSL const *, int, int);
@@ -564,3 +593,7 @@ int bb_spdy_send_body(struct bb_session *, char *, size_t);
 int bb_spdy_send_end(struct bb_session *);
 
 int bb_nonblock(int);
+
+void *bb_alloc(size_t);
+void bb_free(void *, size_t);
+void *bb_realloc(void *, size_t, ssize_t);

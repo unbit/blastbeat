@@ -48,9 +48,9 @@ static int cache_message_complete(struct http_parser *parser) {
 
 static int cache_body(struct http_parser *parser, const char *buf, size_t len) {
 	struct bb_cache_item *bbci = (struct bb_cache_item *) parser->data;
-	char *tmp_buf = realloc(bbci->body, bbci->body_len+len);
+	char *tmp_buf = bb_realloc(bbci->body, bbci->body_len, len);
 	if (!tmp_buf) {
-		bb_error("realloc()");
+		bb_error("unable to allocate cache body:");
 		return -1;
 	}
 	if (!bbci->body && !bbci->http_end_of_first_line) {
@@ -65,9 +65,9 @@ static int cache_body(struct http_parser *parser, const char *buf, size_t len) {
 static int cache_header_field_cb(http_parser *parser, const char *buf, size_t len) {
         struct bb_cache_item *bbci = (struct bb_cache_item *) parser->data;
         if (bbci->last_was_value) {
-		struct bb_http_header *bbhh = realloc(bbci->headers, sizeof(struct bb_http_header)*(bbci->headers_count+1));
+		struct bb_http_header *bbhh = bb_realloc(bbci->headers, sizeof(struct bb_http_header)*bbci->headers_count, sizeof(struct bb_http_header));
 		if (!bbhh) {
-			bb_error("realloc()");
+			bb_error("unable to allocate memory for cache headers");
 			return -1;
 		}
 		// is it the first header ?
@@ -77,7 +77,7 @@ static int cache_header_field_cb(http_parser *parser, const char *buf, size_t le
 		bbci->headers = bbhh;
 		int pos = bbci->headers_count;
                 bbci->headers_count++;
-                bbci->headers[pos].key = malloc(len);
+                bbci->headers[pos].key = bb_alloc(len);
 		if (!bbci->headers[pos].key) {
 			bb_error("malloc()");
 			return -1;
@@ -87,7 +87,7 @@ static int cache_header_field_cb(http_parser *parser, const char *buf, size_t le
         }
         else {
 		int pos = bbci->headers_count-1;
-		char *tmp_buf = realloc(bbci->headers[pos].key, bbci->headers[pos].keylen + len);
+		char *tmp_buf = bb_realloc(bbci->headers[pos].key, bbci->headers[pos].keylen, len);
 		if (!tmp_buf) {
 			bb_error("realloc()");
 			return -1;
@@ -104,7 +104,7 @@ static int cache_header_value_cb(http_parser *parser, const char *buf, size_t le
 	struct bb_cache_item *bbci = (struct bb_cache_item *) parser->data;
         int pos = bbci->headers_count-1;
         if (!bbci->last_was_value) {
-                bbci->headers[pos].value = malloc(len);
+                bbci->headers[pos].value = bb_alloc(len);
 		if (!bbci->headers[pos].value) {
 			bb_error("malloc()");
 			return -1;
@@ -113,7 +113,7 @@ static int cache_header_value_cb(http_parser *parser, const char *buf, size_t le
                 bbci->headers[pos].vallen = len;
         }
         else {
-		char *tmp_buf = realloc(bbci->headers[pos].value, bbci->headers[pos].vallen + len);	
+		char *tmp_buf = bb_realloc(bbci->headers[pos].value, bbci->headers[pos].vallen, len);	
 		if (!tmp_buf) {
 			bb_error("realloc()");
 			return -1;
@@ -175,22 +175,26 @@ static void bb_cache_clear(struct bb_cache_item *bbci) {
 	size_t i;
 	for(i=0;i<bbci->headers_count;i++) {
                 if (bbci->headers[i].key)
-                        free(bbci->headers[i].key);
+                        bb_free(bbci->headers[i].key, bbci->headers[i].keylen);
                 if (bbci->headers[i].value)
-                        free(bbci->headers[i].value);
+                        bb_free(bbci->headers[i].value, bbci->headers[i].vallen);
         }
         if (bbci->headers)
-                free(bbci->headers);
+                bb_free(bbci->headers, sizeof(struct bb_http_header)*bbci->headers_count);
         if (bbci->body)
-                free(bbci->body);
+                bb_free(bbci->body, bbci->body_len);
         if (bbci->key)
-                free(bbci->key);
+                bb_free(bbci->key, bbci->keylen);
         if (bbci->http_first_line)
-                free(bbci->http_first_line);
-        free(bbci);
+                bb_free(bbci->http_first_line, bbci->http_first_line_len);
+        bb_free(bbci, sizeof(struct bb_cache_item));
 }
 
 static void bb_cache_destroy(struct bb_cache_item *bbci) {
+	// stop the expires timer
+	if (bbci->expires_num > 0) {
+		ev_timer_stop(blastbeat.loop, &bbci->expires);
+	}
         // get the ht entry
         struct bb_cache_entry *bbce = bbci->entry;
         // is it the first item ?
@@ -210,13 +214,20 @@ static void bb_cache_destroy(struct bb_cache_item *bbci) {
                 bbci->next->prev = bbci->prev;
         }
 
+	if ((sizeof(struct bb_cache_item) + bbci->len) > bbci->vhost->allocated_cache) {
+		fprintf(stderr,"BUG in cache memory accounting !!!\n");
+	}
+
+	bbci->vhost->allocated_cache -= (sizeof(struct bb_cache_item) + bbci->len);
+	blastbeat.cache_memory -= (sizeof(struct bb_cache_item) + bbci->len);
+
+	//if (
+
 	bb_cache_clear(bbci);
 }
 
 static void cache_expires_cb(struct ev_loop *loop, struct ev_timer *w, int revents) {
         struct bb_cache_item *bbci = (struct bb_cache_item *) w;
-	// just for safety
-	ev_timer_stop(blastbeat.loop, &bbci->expires);
 	bb_cache_destroy(bbci);
 }
 
@@ -236,7 +247,7 @@ void bb_cache_store(struct bb_session *bbs, char *buf, size_t len, int frag) {
 	if (bbs->vhost->cache_size == 0) return;
 
 	// check for space
-	if ((sizeof(struct bb_cache_item) + len) > bbs->vhost->cache_size) {
+	if (bbs->vhost->allocated_cache + (sizeof(struct bb_cache_item) + len) > bbs->vhost->cache_size) {
 		fprintf(stderr,"!!! cache for virtualhost \"%.*s\" is full !!!\n", (int) bbs->vhost->len, bbs->vhost->name);
 		return;
 	}
@@ -301,12 +312,14 @@ void bb_cache_store(struct bb_session *bbs, char *buf, size_t len, int frag) {
 		}
 		// by default ignore updates
 		if (flags_num == 0) return;
+
+		bb_cache_destroy(already);
 	}
 
 	char *http_buf = buf+(i+1);
 	size_t http_buf_len = len-(i+1);
 
-	struct bb_cache_item *bbci = malloc(sizeof(struct bb_cache_item));
+	struct bb_cache_item *bbci = bb_alloc(sizeof(struct bb_cache_item));
 	if (!bbci) {
 		bb_error("malloc()");
 		return;
@@ -314,7 +327,7 @@ void bb_cache_store(struct bb_session *bbs, char *buf, size_t len, int frag) {
 	memset(bbci, 0, sizeof(struct bb_cache_item));
 
 	if (frag) {
-		bbci->body = malloc(http_buf_len);
+		bbci->body = bb_alloc(http_buf_len);
 		if (!bbci->body) {
 			bb_error("malloc()");
 			goto clear;
@@ -340,7 +353,7 @@ void bb_cache_store(struct bb_session *bbs, char *buf, size_t len, int frag) {
 	memcpy(bbci->protocol, http_buf, 8);
 
 	bbci->http_first_line_len = bbci->http_end_of_first_line-http_buf;
-	bbci->http_first_line = malloc(bbci->http_first_line_len);
+	bbci->http_first_line = bb_alloc(bbci->http_first_line_len);
 	if (!bbci->http_first_line) {
 		bb_error("malloc()");
 		goto clear;
@@ -353,7 +366,7 @@ store:
         // get the ht entry
         struct bb_cache_entry *bbce = &bbs->vhost->cache[cht_pos];
 
-        bbci->key = malloc(keylen);
+        bbci->key = bb_alloc(keylen);
 	if (!bbci->key) {
 		bb_error("malloc()");
 		goto clear;
@@ -364,6 +377,9 @@ store:
 	bbci->frag = frag;
 	bbci->entry = bbce;
         bbci->next = NULL;
+	bbci->len = len;
+	bbci->expires_num = expires_num;
+	bbci->vhost = bbs->vhost;
 
         // append cache item to entry
         if (!bbce->head) {
@@ -380,6 +396,9 @@ store:
         	ev_timer_init(&bbci->expires, cache_expires_cb, expires_num, 0.0);
 		ev_timer_start(blastbeat.loop, &bbci->expires);
 	}
+
+	bbs->vhost->allocated_cache += (sizeof(struct bb_cache_item) + len);
+	blastbeat.cache_memory += (sizeof(struct bb_cache_item) + len);
 	
 	return;
 

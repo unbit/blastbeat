@@ -49,7 +49,7 @@ static char *bb_get_route(char *buf, size_t len, size_t *rlen) {
 	return NULL;
 }
 
-void bb_raw_zmq_send_msg(char *identity, size_t identity_len, char *sid, size_t sid_len, char *t, size_t t_len, char *body, size_t body_len) {
+void bb_raw_zmq_send_msg(struct bb_session *bbs, char *identity, size_t identity_len, char *sid, size_t sid_len, char *t, size_t t_len, char *body, size_t body_len) {
 
         zmq_msg_t z_i,z_sid,z_t, z_body;
 
@@ -82,10 +82,10 @@ void bb_raw_zmq_send_msg(char *identity, size_t identity_len, char *sid, size_t 
 
 }
 
-void bb_zmq_send_msg(char *identity, size_t identity_len, char *sid, size_t sid_len, char *t, size_t t_len, char *body, size_t body_len) {
+void bb_zmq_send_msg(struct bb_session *bbs, char *identity, size_t identity_len, char *sid, size_t sid_len, char *t, size_t t_len, char *body, size_t body_len) {
 
         ev_feed_event(blastbeat.loop, &blastbeat.event_zmq, EV_READ);
-        bb_raw_zmq_send_msg(identity, identity_len, sid, sid_len, t, t_len, body, body_len);
+        bb_raw_zmq_send_msg(bbs, identity, identity_len, sid, sid_len, t, t_len, body, body_len);
 }
 
 
@@ -238,7 +238,7 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
                                         bb_connection_close(bbs->connection);
                                         goto next;
                                 }
-                                bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "uwsgi", 5, bbs->request.uwsgi_buf, bbs->request.uwsgi_pos);
+                                bb_zmq_send_msg(bbs, bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "uwsgi", 5, bbs->request.uwsgi_buf, bbs->request.uwsgi_pos);
                                 bbs->hops++;
                                 goto next;
                         }
@@ -253,15 +253,15 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 						struct bb_session *bbs_dest = bb_sht_get(route+1);
 						if (!bbs_dest) goto next;
 						if (!bbs_dest->dealer) goto next;
-						bb_zmq_send_msg(bbs_dest->dealer->identity, bbs_dest->dealer->len, route+1, BB_UUID_LEN, "msg", 3, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]));
+						bb_zmq_send_msg(bbs_dest, bbs_dest->dealer->identity, bbs_dest->dealer->len, route+1, BB_UUID_LEN, "msg", 3, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]));
 					}
 				}
 				else {
 					foreach_session_in_group
-						bb_zmq_send_msg(bbgs->session->dealer->identity, bbgs->session->dealer->len,
+						bb_zmq_send_msg(bbgs->session, bbgs->session->dealer->identity, bbgs->session->dealer->len,
 							(char *) &bbgs->session->uuid_part1, BB_UUID_LEN, "msg", 3, zmq_msg_data(&msg[3]), msg_len);
                                         end_foreach
-					bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len,
+					bb_zmq_send_msg(bbs, bbs->dealer->identity, bbs->dealer->len,
                                         	(char *) &bbs->uuid_part1, BB_UUID_LEN, "msg", 3, zmq_msg_data(&msg[3]), msg_len);
 				}
 				goto next;

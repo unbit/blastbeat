@@ -26,7 +26,7 @@ static char *base64(char *str, size_t *len) {
 	}
         BIO_get_mem_ptr(b64, &bptr);
 
-        buf = malloc(bptr->length-1);
+        buf = bb_alloc(bptr->length-1);
         memcpy(buf, bptr->data, bptr->length-1);
         *len = bptr->length-1;
 clear:
@@ -85,12 +85,12 @@ void bb_websocket_pass(struct bb_session *bbs, char *buf, ssize_t len) {
 		bb_socketio_message(bbs->sio_session, buf, len);
 		return;
 	}
-        bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "websocket", 9, buf, len);
+        bb_zmq_send_msg(bbs, bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "websocket", 9, buf, len);
 }
 
 int bb_manage_websocket(struct bb_session *bbs, char *buf, ssize_t len) {
 
-	bbs->request.websocket_message_queue = realloc(bbs->request.websocket_message_queue, bbs->request.websocket_message_queue_len + len);
+	bbs->request.websocket_message_queue = bb_realloc(bbs->request.websocket_message_queue, bbs->request.websocket_message_queue_len, len);
 	memcpy(bbs->request.websocket_message_queue + bbs->request.websocket_message_queue_len, buf, len);
 	bbs->request.websocket_message_queue_len += len;
 
@@ -159,13 +159,13 @@ parser:
                        bbs->request.websocket_message_queue = NULL;
                        bbs->request.websocket_message_queue_len = 0;
                        if (old_queue_len - (bbs->request.websocket_message_queue_pos + bbs->request.websocket_message_size) > 0) {
-                       		bbs->request.websocket_message_queue = malloc(old_queue_len - (bbs->request.websocket_message_queue_pos + bbs->request.websocket_message_size));
+                       		bbs->request.websocket_message_queue = bb_alloc(old_queue_len - (bbs->request.websocket_message_queue_pos + bbs->request.websocket_message_size));
 				bbs->request.websocket_message_queue_len = old_queue_len - (bbs->request.websocket_message_queue_pos + bbs->request.websocket_message_size);
 				memcpy(bbs->request.websocket_message_queue, old_queue + bbs->request.websocket_message_queue_pos + bbs->request.websocket_message_size, bbs->request.websocket_message_queue_len);
-                       		free(old_queue);
+                       		bb_free(old_queue, old_queue_len);
 				goto parser;
                        }
-                       free(old_queue);
+                       bb_free(old_queue, old_queue_len);
                        return 0;       
                default:
                        return -1;
@@ -200,7 +200,7 @@ int bb_websocket_reply(struct bb_session *bbs, char *msg, size_t len) {
 		return -1;
 	}
 
-	char *buf = malloc(pkt_len);
+	char *buf = bb_alloc(pkt_len);
 	if (!buf) {
 		bb_error("unable to allocate memory for websocket reply: malloc()");
 		return -1;

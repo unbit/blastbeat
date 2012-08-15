@@ -32,7 +32,7 @@ void bb_session_close(struct bb_session *bbs) {
 
 	// clear dynamic memory areas (if required)
 	if (bbs->push_queue) {
-		free(bbs->push_queue);
+		bb_free(bbs->push_queue, bbs->push_queue_len);
 	}
 
         // remove groups (if not persistent)
@@ -46,7 +46,7 @@ void bb_session_close(struct bb_session *bbs) {
 
                 // if linked to a dealer (and not in stealth mode), send a 'end' message
                 if (bbs->dealer && !bbs->stealth) {
-                        bb_zmq_send_msg(bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "end", 3, "", 0);
+                        bb_zmq_send_msg(bbs, bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "end", 3, "", 0);
                 }
         }
 
@@ -77,7 +77,7 @@ void bb_session_close(struct bb_session *bbs) {
 clear:
 
 	if (!bbs->persistent)
-		free(bbs);
+		bb_free(bbs, sizeof(struct bb_session));
 }
 
 /*
@@ -130,12 +130,12 @@ void bb_connection_close(struct bb_connection *bbc) {
 		struct bb_writer_item *old_bbwi = bbwi;	
 		bbwi = bbwi->next;
 		if ((old_bbwi->flags & BB_WQ_FREE) && old_bbwi->len > 0) {
-			free(old_bbwi->buf);
+			bb_free(old_bbwi->buf, old_bbwi->len);
 		}
-		free(old_bbwi);
+		bb_free(old_bbwi, sizeof(struct bb_writer_item));
 	}
 
-	free(bbc);
+	bb_free(bbc, sizeof(struct bb_connection));
 	blastbeat.active_connections--;
 }
 
@@ -181,11 +181,12 @@ next:
 	bbs->vhost = vhost;
 	// increase only if it is not a moving session
 	if (!bbs->dealer) {
-		if (bbs->vhost->max_sessions > 0 && bbs->vhost->active_sessions+1 > bbs->vhost->max_sessions) {
+		// increase here !!! (to avoid wrong call of -- on overload)
+		bbs->vhost->active_sessions++;
+		if (bbs->vhost->max_sessions > 0 && bbs->vhost->active_sessions > bbs->vhost->max_sessions) {
 			fprintf(stderr,"!!! maximum number of sessions (%llu) for virtualhost \"%.*s\" reached !!!\n", (unsigned long long) bbs->vhost->max_sessions, (int) bbs->vhost->len, bbs->vhost->name);
 			return -1;
 		}
-		bbs->vhost->active_sessions++;
 	}
 	bbs->dealer = best_dealer;
 	return 0;
@@ -254,16 +255,16 @@ void bb_initialize_request(struct bb_session *bbs) {
 	// free already used resources
 	if (bbs->request.initialized) {
 		if (bbs->request.uwsgi_buf) {
-			free(bbs->request.uwsgi_buf);
+			bb_free(bbs->request.uwsgi_buf, bbs->request.uwsgi_len);
 		}
 		if (bbs->request.websocket_message_queue) {
-			free(bbs->request.websocket_message_queue);
+			bb_free(bbs->request.websocket_message_queue, bbs->request.websocket_message_queue_len);
 		}
 		for(i=0;i<=bbs->request.header_pos;i++) {
 			if (bbs->request.headers[i].key)
-				free(bbs->request.headers[i].key);
+				bb_free(bbs->request.headers[i].key, bbs->request.headers[i].keylen);
 			if (bbs->request.headers[i].value)
-				free(bbs->request.headers[i].value);
+				bb_free(bbs->request.headers[i].value, bbs->request.headers[i].vallen);
 		}
 		// clear all
 		memset(&bbs->request, 0, sizeof(struct bb_request));
@@ -295,9 +296,8 @@ struct bb_session *bb_session_new(struct bb_connection *bbc) {
 		fprintf(stderr,"!!! maximum number of total sessions (%llu) reached !!!\n", (unsigned long long) blastbeat.max_sessions);
 		return NULL;
 	}
-	struct bb_session *bbs = malloc(sizeof(struct bb_session));
+	struct bb_session *bbs = bb_alloc(sizeof(struct bb_session));
 	if (!bbs) {
-		bb_error("malloc()");
 		return NULL;
 	}
 	memset(bbs, 0, sizeof(struct bb_session));
@@ -346,9 +346,8 @@ static void bb_accept_callback(struct ev_loop *loop, struct ev_io *w, int revent
 	}
 
 	// generate a new connection object
-	struct bb_connection *bbc = malloc(sizeof(struct bb_connection));
+	struct bb_connection *bbc = bb_alloc(sizeof(struct bb_connection));
 	if (!bbc) {
-		perror("malloc()");
 		close(client);
 		return;
 	}
@@ -382,8 +381,14 @@ static void bb_accept_callback(struct ev_loop *loop, struct ev_io *w, int revent
 
 // currently it only prints the number of active sessions and connections
 static void stats_cb(struct ev_loop *loop, struct ev_timer *w, int revents) {
-	fprintf(stderr,"active sessions: %llu active connections %llu\n", (unsigned long long) blastbeat.active_sessions, 
-		(unsigned long long) blastbeat.active_connections);
+	uint64_t running_memory = blastbeat.allocated_memory-(blastbeat.startup_memory+blastbeat.cache_memory);
+	fprintf(stderr,"active sessions: %llu active connections %llu running memory: %llu (%lluMB) cache memory: %llu (%lluMB) total memory: %lluMB\n", (unsigned long long) blastbeat.active_sessions, 
+		(unsigned long long) blastbeat.active_connections,
+		(unsigned long long) running_memory,
+		(unsigned long long) running_memory/1024/1024,
+		(unsigned long long) blastbeat.cache_memory,
+		(unsigned long long) blastbeat.cache_memory/1024/1024,
+		(unsigned long long) blastbeat.allocated_memory/1024/1024);
 }
 
 // the healthcheck system
@@ -400,10 +405,10 @@ static void pinger_cb(struct ev_loop *loop, struct ev_timer *w, int revents) {
 				bbd->status = BLASTBEAT_DEALER_OFF;
 				fprintf(stderr,"node \"%s\" is OFF\n", bbd->identity);
 			}
-			bb_raw_zmq_send_msg(bbd->identity, bbd->len, "", 0, "ping", 4, "", 0);
+			bb_raw_zmq_send_msg(NULL, bbd->identity, bbd->len, "", 0, "ping", 4, "", 0);
 		}
 		if (!bbd->spawn_sent) {
-			bb_raw_zmq_send_msg(bbd->identity, bbd->len, "", 0, "spawn", 5, "", 0);
+			bb_raw_zmq_send_msg(NULL, bbd->identity, bbd->len, "", 0, "spawn", 5, "", 0);
 			bbd->spawn_sent = 1;
 		}
 		bbd = bbd->next;
@@ -510,7 +515,7 @@ static void bb_acceptor_push_vhost(struct bb_acceptor *acceptor, struct bb_virtu
 		vhosts = vhosts->next;
 	}
 
-	vhosts = malloc(sizeof(struct bb_acceptor_vhost));
+	vhosts = bb_alloc(sizeof(struct bb_acceptor_vhost));
 	if (!vhosts) {
 		bb_error_exit("malloc()");
 	}
@@ -537,7 +542,7 @@ static void bb_vhosts_fix() {
 		}
 		if (vhosts->cache_size > 0) {
 			vhosts->cht_size = 65536;
-			vhosts->cache = malloc(sizeof(struct bb_cache_entry) * vhosts->cht_size);
+			vhosts->cache = bb_alloc(sizeof(struct bb_cache_entry) * vhosts->cht_size);
 			if (!vhosts->cache) {
 				bb_error_exit("unable to allocate memory for caching: malloc()\n");
 			}
@@ -626,11 +631,14 @@ int main(int argc, char *argv[]) {
 
 	// set default values
 	blastbeat.ping_freq = 3.0;
+	blastbeat.stats_freq = 60.0;
 	blastbeat.sht_size = 65536;
 	blastbeat.uid = "nobody";
 	blastbeat.gid = "nogroup";
 	blastbeat.max_hops = 10;
 	blastbeat.max_sessions = 10000;
+	// 2GB max_memory
+	blastbeat.max_memory = (uint64_t) 2048*1024*1024;
 	// default 30 minutes timeout
 	blastbeat.timeout = 1800;
 	// clear the hostname hashtable (just for safety)
@@ -675,7 +683,7 @@ int main(int argc, char *argv[]) {
 
 	fprintf(stderr, "allowed sessions: %llu\n", (unsigned long long) blastbeat.max_sessions);
 
-	blastbeat.sht = malloc(sizeof(struct bb_session_entry) * blastbeat.sht_size);
+	blastbeat.sht = bb_alloc(sizeof(struct bb_session_entry) * blastbeat.sht_size);
 	if (!blastbeat.sht) {
 		bb_error_exit("unable to allocate sessions hashtable: malloc()");
 	}
@@ -721,10 +729,11 @@ int main(int argc, char *argv[]) {
         ev_timer_start(blastbeat.loop, &blastbeat.pinger);
 
 	// report stats every 60 seconds
-	ev_timer_init(&blastbeat.stats, stats_cb, 60.0, 60.0);
+	ev_timer_init(&blastbeat.stats, stats_cb, blastbeat.stats_freq, blastbeat.stats_freq);
         ev_timer_start(blastbeat.loop, &blastbeat.stats);
 
-	fprintf(stdout,"\n*** BlastBeat is ready ***\n");
+	blastbeat.startup_memory = blastbeat.allocated_memory;
+	fprintf(stdout,"\n*** BlastBeat is ready (%lluMB allocated) ***\n", (unsigned long long) blastbeat.startup_memory/1024/1024);
 	
 	ev_loop(blastbeat.loop, 0);
 	return 0;

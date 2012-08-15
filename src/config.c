@@ -57,7 +57,7 @@ static int bb_hostname_add(char *name, size_t len, struct bb_virtualhost *vhost)
 		bbhn = bbhn->next;
 	}
 	
-        bbhn = malloc(sizeof(struct bb_hostname));
+        bbhn = bb_alloc(sizeof(struct bb_hostname));
         if (!bbhn) {
                 bb_error_exit("unable to allocate memory for hostname: malloc()");
         }
@@ -137,7 +137,7 @@ check:
 		acceptor = acceptor->next;
 	}
 
-	acceptor = malloc(sizeof(struct bb_acceptor));
+	acceptor = bb_alloc(sizeof(struct bb_acceptor));
 	if (!acceptor) {
 		bb_error_exit("unable to allocate memory for the new aceptor: malloc()");
 	}	
@@ -177,7 +177,7 @@ static struct bb_virtualhost *get_or_create_vhost(char *vhostname) {
 		vhost = vhost->next;
 	}
 
-	vhost = malloc(sizeof(struct bb_virtualhost));
+	vhost = bb_alloc(sizeof(struct bb_virtualhost));
 	if (!vhost) {
 		bb_error_exit("malloc()");
 	}
@@ -187,7 +187,7 @@ static struct bb_virtualhost *get_or_create_vhost(char *vhostname) {
 
 	// create the groups hashtable
 	vhost->ght_size = 65536;
-	vhost->ght = malloc(sizeof(struct bb_group_entry) * vhost->ght_size);
+	vhost->ght = bb_alloc(sizeof(struct bb_group_entry) * vhost->ght_size);
 	if (!vhost->ght) {
 		bb_error_exit("malloc()");
 	}
@@ -215,7 +215,7 @@ static struct bb_dealer *get_or_create_dealer(char *node) {
                 bbd = bbd->next;
         }
 
-	bbd = malloc(sizeof(struct bb_dealer));
+	bbd = bb_alloc(sizeof(struct bb_dealer));
 	if (!bbd) {
 		bb_error_exit("malloc()");
 	}
@@ -244,7 +244,7 @@ static struct bb_vhost_dealer *create_vhost_dealer(struct bb_virtualhost *vhost,
 		bbvhd = bbvhd->next;
 	}	
 
-	bbvhd = malloc(sizeof(struct bb_vhost_dealer));
+	bbvhd = bb_alloc(sizeof(struct bb_vhost_dealer));
 	if (!bbvhd) {
 		bb_error_exit("malloc()");
 	}
@@ -348,7 +348,7 @@ void bb_ini_config(char *file) {
 		bb_error_exit("error reading blastbeat config file: stat()");
 	}
 
-	char *ini = malloc(st.st_size + 1);
+	char *ini = bb_alloc(st.st_size + 1);
 	if (!ini) {
 		bb_error_exit("error reading blastbeat config file: malloc()");
 	}
@@ -415,7 +415,7 @@ void bb_vhost_push_acceptor(struct bb_virtualhost *vhost, struct bb_acceptor *ac
 		bbva = bbva->next;
 	}
 
-	bbva = malloc(sizeof(struct bb_vhost_acceptor));
+	bbva = bb_alloc(sizeof(struct bb_vhost_acceptor));
 	if (!bbva) {
 		bb_error_exit("malloc()");
 	}	
@@ -449,6 +449,11 @@ static void bb_main_config_add(char *key, char *value) {
 
         is_opt("ping-freq") {
                 blastbeat.ping_freq = atof(value);
+                return;
+        }
+
+        is_opt("stats-freq") {
+                blastbeat.stats_freq = atof(value);
                 return;
         }
 
