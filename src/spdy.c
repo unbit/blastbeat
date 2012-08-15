@@ -343,9 +343,11 @@ int bb_spdy_push_headers(struct bb_session *bbs) {
 
 	bb_free(buf, spdy_len); 
 
-        if (bb_wq_push(bbs, compresses_headers, ch_len, BB_WQ_FREE)) {
+        if (bb_wq_push_copy(bbs, compresses_headers, ch_len, BB_WQ_FREE)) {
+		bb_free(compresses_headers, (spdy_len-18)+30);
                 return -1;
         }
+	bb_free(compresses_headers, (spdy_len-18)+30);
 
         return 0;
 }
@@ -442,9 +444,11 @@ int bb_spdy_raw_send_headers(struct bb_session *bbs, off_t headers_pos, off_t he
 
 	bb_free(buf, spdy_len);
 
-	if (bb_wq_push(bbs, compresses_headers, ch_len, BB_WQ_FREE)) {
+	if (bb_wq_push_copy(bbs, compresses_headers, ch_len, BB_WQ_FREE)) {
+		bb_free(compresses_headers, (spdy_len-14)+30);
 		return -1;
 	}
+	bb_free(compresses_headers, (spdy_len-14)+30);
 	
 	return 0;
 }
@@ -623,6 +627,9 @@ static int bb_manage_spdy_msg(struct bb_connection *bbc) {
 			bbs->send_body = bb_spdy_send_body;
 			bbs->send_cache_headers = bb_spdy_send_cache_headers;
 			bbs->send_cache_body = bb_spdy_send_cache_body;
+
+			// prepare for a new request
+                	bb_initialize_request(bbs);
 
 			bbs->stream_id = bbc->spdy_stream_id;
 			if (bb_spdy_inflate(bbs, bbc->spdy_body_buf, bbc->spdy_length)) {

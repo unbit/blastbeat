@@ -142,6 +142,8 @@ struct bb_cache_item {
 	// correctly parsed ?
 	int valid;
 
+	size_t headers_len;
+
 	char *http_end_of_first_line;
 	char *http_first_line;
 	size_t http_first_line_len;

@@ -112,7 +112,11 @@ int bb_manage_chunk(struct bb_session *bbs, char *buf, size_t len) {
         }
         int chunk_len = snprintf(chunk, MAX_CHUNK_STORAGE, "%X\r\n", (unsigned int) len);
 
-        if (bb_wq_push(bbs, chunk, chunk_len, BB_WQ_FREE)) return -1;
+        if (bb_wq_push_copy(bbs, chunk, chunk_len, BB_WQ_FREE)) {
+		bb_free(chunk, MAX_CHUNK_STORAGE);
+		return -1;
+	}
+	bb_free(chunk, MAX_CHUNK_STORAGE);
         if (bb_wq_push_copy(bbs, buf, len, BB_WQ_FREE)) return -1;
         if (bb_wq_push(bbs, "\r\n", 2, 0)) return -1;
         if (len == 0 && bbs->response.close) {

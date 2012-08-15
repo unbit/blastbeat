@@ -70,6 +70,7 @@ static int cache_header_field_cb(http_parser *parser, const char *buf, size_t le
 			bb_error("unable to allocate memory for cache headers");
 			return -1;
 		}
+		bbci->headers_len+=sizeof(struct bb_http_header);
 		// is it the first header ?
 		if (bbci->headers_count == 0) {
 			bbci->http_end_of_first_line = (char *) buf-2;
@@ -82,6 +83,7 @@ static int cache_header_field_cb(http_parser *parser, const char *buf, size_t le
 			bb_error("malloc()");
 			return -1;
 		}
+		bbci->headers_len+=len;
                 memcpy(bbci->headers[pos].key, buf, len);
 		bbci->headers[pos].keylen = len;
         }
@@ -92,6 +94,7 @@ static int cache_header_field_cb(http_parser *parser, const char *buf, size_t le
 			bb_error("realloc()");
 			return -1;
 		}
+		bbci->headers_len+= len;
 		bbci->headers[pos].key = tmp_buf;
                 memcpy(bbci->headers[pos].key + bbci->headers[pos].keylen, buf, len);
                 bbci->headers[pos].keylen += len;
@@ -109,6 +112,7 @@ static int cache_header_value_cb(http_parser *parser, const char *buf, size_t le
 			bb_error("malloc()");
 			return -1;
 		}
+		bbci->headers_len+=len;
                 memcpy(bbci->headers[pos].value, buf, len);
                 bbci->headers[pos].vallen = len;
         }
@@ -118,6 +122,7 @@ static int cache_header_value_cb(http_parser *parser, const char *buf, size_t le
 			bb_error("realloc()");
 			return -1;
 		}
+		bbci->headers_len+=len;
 		bbci->headers[pos].value = tmp_buf;
                 memcpy(bbci->headers[pos].value + bbci->headers[pos].vallen, buf, len);
                 bbci->headers[pos].vallen += len;
@@ -218,8 +223,8 @@ static void bb_cache_destroy(struct bb_cache_item *bbci) {
 		fprintf(stderr,"BUG in cache memory accounting !!!\n");
 	}
 
-	bbci->vhost->allocated_cache -= (sizeof(struct bb_cache_item) + bbci->len);
-	blastbeat.cache_memory -= (sizeof(struct bb_cache_item) + bbci->len);
+	bbci->vhost->allocated_cache -= bbci->len;
+	blastbeat.cache_memory -= bbci->len;
 
 	//if (
 
@@ -377,7 +382,7 @@ store:
 	bbci->frag = frag;
 	bbci->entry = bbce;
         bbci->next = NULL;
-	bbci->len = len;
+	bbci->len = sizeof(struct bb_cache_item) + bbci->body_len + bbci->http_first_line_len + keylen + bbci->headers_len;
 	bbci->expires_num = expires_num;
 	bbci->vhost = bbs->vhost;
 
@@ -397,8 +402,8 @@ store:
 		ev_timer_start(blastbeat.loop, &bbci->expires);
 	}
 
-	bbs->vhost->allocated_cache += (sizeof(struct bb_cache_item) + len);
-	blastbeat.cache_memory += (sizeof(struct bb_cache_item) + len);
+	bbs->vhost->allocated_cache += bbci->len;
+	blastbeat.cache_memory += bbci->len;
 	
 	return;
 
