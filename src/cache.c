@@ -219,14 +219,12 @@ static void bb_cache_destroy(struct bb_cache_item *bbci) {
                 bbci->next->prev = bbci->prev;
         }
 
-	if ((sizeof(struct bb_cache_item) + bbci->len) > bbci->vhost->allocated_cache) {
+	if (bbci->len > bbci->vhost->allocated_cache) {
 		fprintf(stderr,"BUG in cache memory accounting !!!\n");
 	}
 
 	bbci->vhost->allocated_cache -= bbci->len;
 	blastbeat.cache_memory -= bbci->len;
-
-	//if (
 
 	bb_cache_clear(bbci);
 }
