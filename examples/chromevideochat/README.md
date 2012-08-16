@@ -43,10 +43,18 @@ Then we build a custom url from the stream and we set it as the src of a video o
 
 remember to set autoplay, otherwise the video will be stopped.
 
-NOTE: currently (chrome version 21) microphone support is incomplete, so we will be able to send video frame only
+NOTE: currently (chrome version 21) microphone support is incomplete, so we will be able to send video frames only
 
 ### Ask a cookie to our BlastBeat app for getting access to the pipe system
 
 After getting access to our webcam, we want to 'enter' the chat and get a 'cookie' for connecting to the 'data' service.
 
+```javascript
+function webcam_ok(stream) {
+  var output = document.getElementById('output');
+  var source = window.webkitURL.createObjectURL(stream);
+  output.src = source;
+  ws_control = new WebSocket("ws://127.0.0.1:8080/control");
+}
+```
 
