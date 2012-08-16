@@ -599,3 +599,6 @@ int bb_nonblock(int);
 void *bb_alloc(size_t);
 void bb_free(void *, size_t);
 void *bb_realloc(void *, size_t, ssize_t);
+
+int bb_pipe_add(struct bb_session *, char *, size_t);
+int bb_check_for_pipe(struct bb_session *, char *, size_t, char *, size_t);

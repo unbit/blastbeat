@@ -35,7 +35,7 @@ void bb_session_close(struct bb_session *bbs) {
 		bb_free(bbs->push_queue, bbs->push_queue_len);
 	}
 
-        // remove groups (if not persistent)
+        // remove groups and pipes (if not persistent)
         if (!bbs->persistent) {
                 struct bb_session_group *bbsg = bbs->groups;
                 while(bbsg) {
@@ -43,6 +43,13 @@ void bb_session_close(struct bb_session *bbs) {
                         bbsg = bbsg->next;
                         bb_session_leave_group(bbs, current_bbsg->group);
                 }
+
+		struct bb_pipe *bbp = bbs->pipes_head;
+		while(bbp) {
+			struct bb_pipe *bbp_next = bbp->next;
+			bb_free(bbp, sizeof(struct bb_pipe));
+			bbp = bbp_next;
+		}
 
                 // if linked to a dealer (and not in stealth mode), send a 'end' message
                 if (bbs->dealer && !bbs->stealth) {

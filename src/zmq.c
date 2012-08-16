@@ -51,6 +51,8 @@ static char *bb_get_route(char *buf, size_t len, size_t *rlen) {
 
 void bb_raw_zmq_send_msg(struct bb_session *bbs, char *identity, size_t identity_len, char *sid, size_t sid_len, char *t, size_t t_len, char *body, size_t body_len) {
 
+	if (bbs && bb_check_for_pipe(bbs, t, t_len, body, body_len)) return;
+
         zmq_msg_t z_i,z_sid,z_t, z_body;
 
         zmq_msg_init_size(&z_i, identity_len);
@@ -287,6 +289,12 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 			on_cmd("end", 3) {
 				bbs->persistent = 0;
 				if (bbs->send_end(bbs))
+					bb_connection_close(bbs->connection);
+                                goto next;
+                        }
+
+			on_cmd("pipe", 4) {
+				if (bb_pipe_add(bbs, zmq_msg_data(&msg[3]), msg_len))
 					bb_connection_close(bbs->connection);
                                 goto next;
                         }
