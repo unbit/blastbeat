@@ -58,3 +58,18 @@ function webcam_ok(stream) {
 }
 ```
 
+### Get access to the data channel
+
+```javascript
+
+function frame_received(pkt) {
+  id = ;
+  box.src = frame;
+}
+
+function get_channel(cookie) {
+  ws_data = new WebSocket("ws://127.0.0.1:8080/data/" + cookie);
+
+}
+
+```
