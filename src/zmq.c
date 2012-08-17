@@ -27,7 +27,7 @@ routing:
                                         while(bbgs) {\
                                                 if (bbgs->session != bbs) {
 #define	end_foreach				}\
-						else if (!bbs->noecho) {\
+						else if (!bbgs->noecho) {\
 							in_group = 1;\
 						}\
                                                 bbgs = bbgs->next;\
@@ -286,12 +286,40 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
                         }
 
 			on_cmd("echo", 4) {
-				bbs->noecho = 0;
+				if (msg_len == 0) {
+					bbs->noecho = 0;
+				}
+				else {
+					struct bb_group *bbg = bb_ght_get(bbs->vhost, zmq_msg_data(&msg[3]), msg_len);
+                                        if (!bbg) goto next;
+                                        struct bb_group_session *bbgs = bbg->sessions;
+                                        while(bbgs) {
+						if (bbgs->session == bbs) {
+							bbgs->noecho = 0;
+							break;
+						}
+						bbgs = bbgs->next;
+					}
+				}
 				goto next;
 			}
 
 			on_cmd("noecho", 6) {
-				bbs->noecho = 1;
+				if (msg_len == 0) {
+					bbs->noecho = 1;
+				}
+				else {
+					struct bb_group *bbg = bb_ght_get(bbs->vhost, zmq_msg_data(&msg[3]), msg_len);
+                                        if (!bbg) goto next;
+                                        struct bb_group_session *bbgs = bbg->sessions;
+                                        while(bbgs) {
+						if (bbgs->session == bbs) {
+							bbgs->noecho = 1;
+							break;
+						}
+						bbgs = bbgs->next;
+					}
+				}
 				goto next;
 			}
 

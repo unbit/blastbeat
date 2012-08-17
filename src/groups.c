@@ -226,6 +226,7 @@ int bb_join_group(struct bb_session *bbs, char *name, size_t len) {
 		return -1;
 	}
 	bbgs->session = bbs;
+	bbgs->noecho = bbs->noecho;
 	bbgs->next = NULL;
 
 	if (last_bbgs) {

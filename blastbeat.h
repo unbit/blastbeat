@@ -113,6 +113,7 @@ struct bb_session_group {
 
 struct bb_group_session {
 	struct bb_session *session;
+	int noecho;
 	struct bb_group_session *prev;
 	struct bb_group_session *next;
 };
