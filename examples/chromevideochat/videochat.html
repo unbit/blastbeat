@@ -1,0 +1,130 @@
+<html>
+
+  <head>
+    <script type="text/javascript">
+
+
+var ctx;
+var ws_data;
+var ws_control;
+var output;
+var my_id;
+
+
+function update_video() {
+	ctx.drawImage(output, 0, 0, 320, 240);
+	image = ctx.getImageData(0, 0, 320, 240);
+	b64jpeg = canvas.toDataURL("image/jpeg", 0.4);
+	ws_data.send(my_id+','+b64jpeg);	
+}
+
+function blastbeat_data(id, cookie) {
+	ws_data = new WebSocket("ws://192.168.173.5:8080/data/"+cookie);
+	ws_data.onopen = function() {
+
+		canvas = document.getElementById('output_canvas');
+		ctx = canvas.getContext('2d');
+
+		setInterval(update_video, 100);
+
+		ws_data.send('start');
+
+		ws_data.onmessage = function(e) {
+			frame = e.data;
+			var comma = frame.indexOf(',');
+			if (comma == -1) return;
+			frame_id = frame.substr(0, comma);
+                        user_frame = document.getElementById('user_'+frame_id);
+			if (user_frame) {
+				user_frame.src = frame.substr(comma+1);
+			}
+		}
+	}
+
+	ws_data.onclose = function(e) {
+		alert('data socket closed');
+	}
+
+	ws_data.onerror = function(e) {
+		alert('error on data socket');
+	}
+}
+
+function ping_control() {
+	join = {'command':'ping'};
+        jm = JSON.stringify(join);
+        ws_control.send(jm);
+}
+
+function blastbeat_control() {
+	ws_control = new WebSocket("ws://192.168.173.5:8080/control");
+	ws_control.onopen = function() {
+
+		join = {'command':'join', 'username':'foobar'};
+		jm = JSON.stringify(join);
+		ws_control.send(jm);
+
+		setInterval(ping_control, 30*1000);
+
+		ws_control.onmessage = function(e) {
+			jm = JSON.parse(e.data);
+			if (jm['command'] == 'welcome') {
+				for(user_id in jm['users']) {
+					user_video = document.createElement('img');
+					user_video.id = 'user_' +jm['users'][user_id];
+					document.body.appendChild(user_video);
+				}
+				my_id = jm['id'];
+				blastbeat_data(jm['id'], jm['cookie']);
+			}
+			else if (jm['command'] == 'newuser') {
+				if (jm['id'] != my_id) {
+					user_video = document.createElement('img');
+					user_video.id = 'user_' + jm['id'];
+					document.body.appendChild(user_video);
+				}
+			}
+			else if (jm['command'] == 'byeuser') {
+				user_video = document.getElementById('user_'+jm['id']);
+				if (user_video) {
+					document.body.removeChild(user_video);
+				}
+			}
+			else if (jm['command'] == 'text') {
+				alert(jm['text']);
+			}	
+		}
+
+		ws_control.onclose = function(e) {
+			alert('control socket closed');
+		}
+	}
+
+	ws_control.onerror = function(e) {
+		alert('error on control socket');
+	}
+}
+
+function webcam_ok(stream) {
+  output = document.getElementById('output');
+  var source = window.webkitURL.createObjectURL(stream);
+  output.src = source;
+  blastbeat_control();
+}
+
+function webcam_no() {
+  alert('no access to the webcam');
+}
+
+navigator.webkitGetUserMedia({video: true, audio: true}, webcam_ok, webcam_no);
+
+     </script>
+
+  </head>
+
+  <body>
+    <video width="320" height="240" id="output" autoplay></video>
+    <canvas width="320" height="240" style="visibility:hidden;position:absolute;top:0px;left:0px;" id="output_canvas"></canvas>
+  </body>
+
+</html>
