@@ -339,9 +339,9 @@ struct bb_session *bb_session_new(struct bb_connection *bbc) {
 // this callback create a new connection object
 static void bb_accept_callback(struct ev_loop *loop, struct ev_io *w, int revents) {
 	struct bb_acceptor *acceptor = (struct bb_acceptor *) w;
-	struct sockaddr_in sin;
-	socklen_t sin_len = sizeof(sin);
-	int client = accept(w->fd, (struct sockaddr *)&sin, &sin_len);
+	union bb_addr addr;
+	socklen_t sin_len = acceptor->addr_len;
+	int client = accept(w->fd, (struct sockaddr *)&addr, &sin_len);
 	if (client < 0) {
 		perror("accept()");
 		return;
@@ -359,6 +359,28 @@ static void bb_accept_callback(struct ev_loop *loop, struct ev_io *w, int revent
 		return;
 	}
 	memset(bbc, 0, sizeof(struct bb_connection));
+
+	// copy the address structure
+	memcpy(&bbc->addr, &addr, sizeof(union bb_addr));
+
+	char *addr_ptr = (char *) &addr.in4.sin_addr.s_addr;
+	if (addr.in.sa_family == AF_INET6) {
+		addr_ptr = (char *) &addr.in6.sin6_addr.s6_addr;
+	}
+
+	if (!inet_ntop(addr.in.sa_family, addr_ptr, bbc->addr_str, INET6_ADDRSTRLEN)) {
+		bb_error("ntop()");
+	}
+
+	// we could use the same address for ipv4 and ipv6
+	if (snprintf(bbc->addr_port, 6, "%u", addr.in4.sin_port) < 1) {
+		fprintf(stderr,"unable to get client port\n");
+	}
+
+	// for performance
+	bbc->addr_str_len = strlen(bbc->addr_str);
+	bbc->addr_port_len = strlen(bbc->addr_port);
+
 	bbc->fd = client;
 	bbc->acceptor = acceptor;
 	// ssl context ?

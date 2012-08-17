@@ -106,6 +106,13 @@ int bb_uwsgi(struct bb_session *bbs) {
 
 	if (add_uwsgi_item(bbs, "SERVER_PROTOCOL", 15, proto, 8, 0))
 		return -1;
+
+	if (bbs->connection) {
+		if (add_uwsgi_item(bbs, "REMOTE_ADDR", 11, bbs->connection->addr_str, bbs->connection->addr_str_len, 0))
+			return -1;
+		if (add_uwsgi_item(bbs, "REMOTE_PORT", 11, bbs->connection->addr_port, bbs->connection->addr_port_len, 0))
+			return -1;
+	}
 	
 	// add HTTP_ headers
 	off_t i;	

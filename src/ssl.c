@@ -93,6 +93,15 @@ static int bb_ssl_npn(SSL *ssl, const unsigned char **data, unsigned int *len, v
 }
 #endif
 
+#ifdef SSL_CTRL_SET_TLSEXT_HOSTNAME
+static int bb_ssl_servername(SSL *ssl,int *ad, void *arg) {
+	const char *servername = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
+	if (!servername) return SSL_TLSEXT_ERR_NOACK;
+	fprintf(stderr,"SNI %s\n", servername);
+	return SSL_TLSEXT_ERR_OK;
+}
+#endif
+
 void bb_socket_ssl(struct bb_acceptor *acceptor) {
 
         if (!blastbeat.ssl_initialized) {
@@ -132,6 +141,11 @@ void bb_socket_ssl(struct bb_acceptor *acceptor) {
         SSL_CTX_set_info_callback(acceptor->ctx, bb_ssl_info_cb);
 #ifdef OPENSSL_NPN_UNSUPPORTED
         SSL_CTX_set_next_protos_advertised_cb(acceptor->ctx, bb_ssl_npn, NULL);
+#endif
+#ifdef SSL_CTRL_SET_TLSEXT_HOSTNAME
+	SSL_CTX_set_tlsext_servername_callback(acceptor->ctx, bb_ssl_servername);	
+#else
+#warning TLS SNI support not available !!!
 #endif
 
         SSL_CTX_set_session_cache_mode(acceptor->ctx, SSL_SESS_CACHE_SERVER);

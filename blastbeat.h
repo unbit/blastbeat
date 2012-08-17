@@ -264,9 +264,16 @@ struct bb_writer_item {
 // the ev_io writer structure for the write queue
 struct bb_writer {
 	ev_io writer;
+	size_t len;
 	struct bb_connection *connection;
 	struct bb_writer_item *head;
 	struct bb_writer_item *tail;
+};
+
+union bb_addr {
+	struct sockaddr in;
+	struct sockaddr_in in4;
+	struct sockaddr_in6 in6;
 };
 
 // a connection from a peer to blastbeat
@@ -279,6 +286,17 @@ struct bb_connection {
 	uint64_t timeout_value;
 
 	int (*func)(struct bb_connection *, char *, size_t);
+
+	// the client addr
+	union bb_addr addr;
+	// string repr of the address;
+	char addr_str[INET6_ADDRSTRLEN+1];
+	// for performance
+	size_t addr_str_len;
+	// string repr of the port
+	char addr_port[6];
+	// for performance
+	size_t addr_port_len;
 
 	// ssl session
 	SSL *ssl;
@@ -414,11 +432,6 @@ struct bb_session_entry {
 	struct bb_session *tail;
 };
 
-union bb_addr {
-	struct sockaddr in;
-	struct sockaddr_in in4;
-	struct sockaddr_in6 in6;
-};
 
 // an acceptor is a bound socket
 struct bb_acceptor {

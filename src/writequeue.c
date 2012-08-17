@@ -17,6 +17,10 @@ extern struct blastbeat_server blastbeat;
 */
 static int wq_push(struct bb_writer *bbw, char *buf, size_t len, int flags, struct bb_session *bbs) {
 
+	
+	// do not enqueue more than 8 megabytes (TODO configure that value)		
+	if (bbw->len+len > 8*1024*1024) return -1;
+
 	struct bb_writer_item *bbwi = bb_alloc(sizeof(struct bb_writer_item));
 	if (!bbwi) {
 		bb_error("unable to allocate memory for a writequeue item: malloc()");
@@ -38,6 +42,7 @@ static int wq_push(struct bb_writer *bbw, char *buf, size_t len, int flags, stru
 	}
 
 	bbw->tail = bbwi;
+	bbw->len += len;
 	return 0;
 }
 
@@ -60,9 +65,6 @@ void bb_wq_callback(struct ev_loop *loop, struct ev_io *w, int revents) {
 	struct bb_writer *bbw = (struct bb_writer *) w;
 	struct bb_connection *bbc = bbw->connection;
 
-	// reset the connection activity timer
-	bb_connection_reset_timer(bbc);
-
 	struct bb_writer_item *bbwi = bbw->head;
 	while(bbwi) {
 		if (bbwi->flags & BB_WQ_CLOSE) goto end;
@@ -80,6 +82,11 @@ void bb_wq_callback(struct ev_loop *loop, struct ev_io *w, int revents) {
 			bb_error("client disconnected: write()");
 			goto end;
 		}
+
+		// reset the connection activity timer on successfully sent
+		bb_connection_reset_timer(bbc);
+
+		bbw->len -= wlen;
 		if (wlen < bbwi->len-bbwi->pos) {
 			bbwi->pos+=wlen;
 			return;

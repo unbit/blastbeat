@@ -196,6 +196,13 @@ msg:
                	if (add_uwsgi_item(bbs, "SERVER_PORT", 11, "80", 2, 0)) return -1;
         }
 
+	if (bbs->connection) {
+                if (add_uwsgi_item(bbs, "REMOTE_ADDR", 11, bbs->connection->addr_str, bbs->connection->addr_str_len, 0))
+                        return -1;
+                if (add_uwsgi_item(bbs, "REMOTE_PORT", 11, bbs->connection->addr_port, bbs->connection->addr_port_len, 0))
+                        return -1;
+        }
+
         // set uwsgi header
         uint16_t pktsize = bbs->request.uwsgi_pos;
         bbs->request.uwsgi_buf[0] = 0;
