@@ -598,9 +598,48 @@ static void bb_vhosts_fix() {
 	}
 }
 
+static void bb_assign_cert(SSL_CTX *ctx, char *key, char *certificate) {
+
+	if (SSL_CTX_use_certificate_file(ctx, certificate, SSL_FILETYPE_PEM) <= 0) {
+                fprintf(stderr, "unable to assign ssl certificate %s\n", certificate);
+                exit(1);
+        }
+
+        BIO *bio = BIO_new_file(certificate, "r");
+        if (bio) {
+                DH *dh = PEM_read_bio_DHparams(bio, NULL, NULL, NULL);
+                BIO_free(bio);
+                if (dh) {
+                        SSL_CTX_set_tmp_dh(ctx, dh);
+                        DH_free(dh);
+#if OPENSSL_VERSION_NUMBER >= 0x0090800fL
+#ifndef OPENSSL_NO_ECDH
+#ifdef NID_X9_62_prime256v1
+                        EC_KEY *ecdh = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
+                        SSL_CTX_set_tmp_ecdh(ctx, ecdh);
+                        EC_KEY_free(ecdh);
+#endif
+#endif
+#endif
+                }
+        }
+
+        if (SSL_CTX_use_PrivateKey_file(ctx, key, SSL_FILETYPE_PEM) <= 0) {
+                fprintf(stderr, "unable to assign key file %s\n", key);
+                exit(1);
+        }
+
+}
+
 static void bb_assign_ssl(struct bb_acceptor *acceptor, struct bb_virtualhost *vhost) {
 
 	if (!acceptor->ctx) return;
+
+	// create a new context, required for SNI
+	vhost->ctx = bb_new_ssl_ctx();
+	if (!vhost->ctx) {
+		exit(1);
+	}
 
 	char *certificate = blastbeat.ssl_certificate;
 	if (vhost->ssl_certificate) certificate = vhost->ssl_certificate;
@@ -618,35 +657,12 @@ static void bb_assign_ssl(struct bb_acceptor *acceptor, struct bb_virtualhost *v
 		exit(1);
 	}
 
-	if (SSL_CTX_use_certificate_file(acceptor->ctx, certificate, SSL_FILETYPE_PEM) <= 0) {
-                fprintf(stderr, "unable to assign ssl certificate %s\n", certificate);
-                exit(1);
-        }	
+	if (!acceptor->ctx_configured) {
+		bb_assign_cert(acceptor->ctx, key, certificate);
+		acceptor->ctx_configured = 1;
+	}
 
-	BIO *bio = BIO_new_file(certificate, "r");
-        if (bio) {
-                DH *dh = PEM_read_bio_DHparams(bio, NULL, NULL, NULL);
-                BIO_free(bio);
-                if (dh) {
-                        SSL_CTX_set_tmp_dh(acceptor->ctx, dh);
-                        DH_free(dh);
-#if OPENSSL_VERSION_NUMBER >= 0x0090800fL
-#ifndef OPENSSL_NO_ECDH
-#ifdef NID_X9_62_prime256v1
-                        EC_KEY *ecdh = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
-                        SSL_CTX_set_tmp_ecdh(acceptor->ctx, ecdh);
-                        EC_KEY_free(ecdh);
-#endif
-#endif
-#endif
-                }
-        }
-
-        if (SSL_CTX_use_PrivateKey_file(acceptor->ctx, key, SSL_FILETYPE_PEM) <= 0) {
-                fprintf(stderr, "unable to assign key file %s\n", key);
-                exit(1);
-        }
-
+	bb_assign_cert(vhost->ctx, key, certificate);
 }
 
 int main(int argc, char *argv[]) {

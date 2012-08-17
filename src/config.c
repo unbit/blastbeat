@@ -144,6 +144,7 @@ check:
 	memset(acceptor, 0, sizeof(struct bb_acceptor));
 	acceptor->shared = shared;
 	acceptor->name = addr;
+	acceptor->port_str = colon;
 	acceptor->read = bb_http_read;
 	acceptor->write = bb_http_write;
 	// fix address name

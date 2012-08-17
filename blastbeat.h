@@ -188,6 +188,8 @@ struct bb_virtualhost {
 	char *ssl_certificate;
 	char *ssl_key;
 
+	SSL_CTX *ctx;
+
 	// inactivy timeout for connections
 	uint64_t timeout;
 
@@ -437,10 +439,13 @@ struct bb_session_entry {
 struct bb_acceptor {
 	ev_io acceptor;
 	char *name;
+	// prefixed with :
+	char *port_str;
 	int shared;
 	union bb_addr addr;
 	socklen_t addr_len;
 	SSL_CTX *ctx;
+	int ctx_configured;
 	ssize_t (*read)(struct bb_connection *, char *, size_t);
 	ssize_t (*write)(struct bb_connection *, char *, size_t);
 	// list of mapped virtualhosts
@@ -619,3 +624,5 @@ void *bb_realloc(void *, size_t, ssize_t);
 
 int bb_pipe_add(struct bb_session *, char *, size_t);
 int bb_check_for_pipe(struct bb_session *, char *, size_t, char *, size_t);
+
+SSL_CTX *bb_new_ssl_ctx(void);

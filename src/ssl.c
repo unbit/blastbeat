@@ -97,10 +97,78 @@ static int bb_ssl_npn(SSL *ssl, const unsigned char **data, unsigned int *len, v
 static int bb_ssl_servername(SSL *ssl,int *ad, void *arg) {
 	const char *servername = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
 	if (!servername) return SSL_TLSEXT_ERR_NOACK;
-	fprintf(stderr,"SNI %s\n", servername);
+	struct bb_connection *bbc = SSL_get_ex_data(ssl, blastbeat.ssl_index);
+	struct bb_acceptor *bba = bbc->acceptor;
+	size_t servername_len = strlen(servername);
+
+	struct bb_virtualhost *vhost = NULL;
+
+	if (bba->addr.in4.sin_port != htons(443) && !strchr(servername, ':')) {
+		size_t port_len = strlen(bba->port_str);
+		char *new_sn = bb_alloc(servername_len+port_len);
+		if (!new_sn) return SSL_TLSEXT_ERR_NOACK;
+		memcpy(new_sn, servername, servername_len);
+		memcpy(new_sn + servername_len, bba->port_str, port_len);
+
+		vhost = bb_vhost_get(new_sn, servername_len+port_len);
+		bb_free(new_sn, servername_len+port_len);
+	}
+	else {
+		vhost = bb_vhost_get((char *)servername, servername_len);
+	}
+
+	if (!vhost) return SSL_TLSEXT_ERR_NOACK;
+	if (!vhost->ctx) return SSL_TLSEXT_ERR_NOACK;
+
+	SSL_set_SSL_CTX(ssl, vhost->ctx);
+
 	return SSL_TLSEXT_ERR_OK;
 }
 #endif
+
+SSL_CTX *bb_new_ssl_ctx() {
+
+        SSL_CTX *ctx = SSL_CTX_new(SSLv23_server_method());
+        if (!ctx) {
+                fprintf(stderr, "unable to initialize SSL context: SSL_CTX_new()");
+		return NULL;
+        }
+
+        long ssloptions = SSL_OP_NO_SSLv2 | SSL_OP_ALL | SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION;
+        // disable compression (if possibile)
+#ifdef SSL_OP_NO_COMPRESSION
+        ssloptions |= SSL_OP_NO_COMPRESSION;
+#endif
+        SSL_CTX_set_options(ctx, ssloptions);
+
+        // release/reuse buffers as soon as possibile
+#ifdef SSL_MODE_RELEASE_BUFFERS
+        SSL_CTX_set_mode(ctx, SSL_MODE_RELEASE_BUFFERS);
+#endif
+
+        if (SSL_CTX_set_cipher_list(ctx, "HIGH") == 0) {
+                fprintf(stderr,"unable to set SSL ciphers: SSL_CTX_set_cipher_list()");
+		SSL_CTX_free(ctx);
+		return NULL;
+        }
+
+        SSL_CTX_set_options(ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
+
+        SSL_CTX_set_info_callback(ctx, bb_ssl_info_cb);
+#ifdef OPENSSL_NPN_UNSUPPORTED
+        SSL_CTX_set_next_protos_advertised_cb(ctx, bb_ssl_npn, NULL);
+#endif
+#ifdef SSL_CTRL_SET_TLSEXT_HOSTNAME
+	SSL_CTX_set_tlsext_servername_callback(ctx, bb_ssl_servername);	
+#else
+#warning TLS SNI support not available !!!
+#endif
+
+        SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_SERVER);
+
+	return ctx;
+}
+
 
 void bb_socket_ssl(struct bb_acceptor *acceptor) {
 
@@ -113,42 +181,10 @@ void bb_socket_ssl(struct bb_acceptor *acceptor) {
                 blastbeat.ssl_index = SSL_CTX_get_ex_new_index(0, NULL, NULL, NULL, NULL);
         }
 
-        acceptor->ctx = SSL_CTX_new(SSLv23_server_method());
-        if (!acceptor->ctx) {
-                fprintf(stderr, "unable to initialize SSL context: SSL_CTX_new()");
-                exit(1);
-        }
-
-        long ssloptions = SSL_OP_NO_SSLv2 | SSL_OP_ALL | SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION;
-        // disable compression (if possibile)
-#ifdef SSL_OP_NO_COMPRESSION
-        ssloptions |= SSL_OP_NO_COMPRESSION;
-#endif
-        SSL_CTX_set_options(acceptor->ctx, ssloptions);
-
-        // release/reuse buffers as soon as possibile
-#ifdef SSL_MODE_RELEASE_BUFFERS
-        SSL_CTX_set_mode(acceptor->ctx, SSL_MODE_RELEASE_BUFFERS);
-#endif
-
-        if (SSL_CTX_set_cipher_list(acceptor->ctx, "HIGH") == 0) {
-                fprintf(stderr,"unable to set SSL ciphers: SSL_CTX_set_cipher_list()");
-                exit(1);
-        }
-
-        SSL_CTX_set_options(acceptor->ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
-
-        SSL_CTX_set_info_callback(acceptor->ctx, bb_ssl_info_cb);
-#ifdef OPENSSL_NPN_UNSUPPORTED
-        SSL_CTX_set_next_protos_advertised_cb(acceptor->ctx, bb_ssl_npn, NULL);
-#endif
-#ifdef SSL_CTRL_SET_TLSEXT_HOSTNAME
-	SSL_CTX_set_tlsext_servername_callback(acceptor->ctx, bb_ssl_servername);	
-#else
-#warning TLS SNI support not available !!!
-#endif
-
-        SSL_CTX_set_session_cache_mode(acceptor->ctx, SSL_SESS_CACHE_SERVER);
+	acceptor->ctx = bb_new_ssl_ctx();
+	if (!acceptor->ctx) {
+		exit(1);
+	}
 
         acceptor->read = bb_ssl_read;
         acceptor->write = bb_ssl_write;
