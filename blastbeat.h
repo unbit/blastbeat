@@ -355,6 +355,9 @@ struct bb_session {
 	// stealth sessions never touch dealers
         int stealth;
 
+	// if member of a group, do not forward messages to myself
+	int noecho;
+
 	// mark socket.io connection status
 	int sio_connected;
 	int sio_realtime;

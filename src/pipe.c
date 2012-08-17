@@ -47,7 +47,9 @@ static void bb_pipe_websocket_to(struct bb_pipe *bbp, char *buf, size_t len) {
 	if (!bbg) return;
 	struct bb_group_session *bbgs = bbg->sessions;
         while(bbgs) {
+		if (bbgs->session == bbp->session && bbp->session->noecho) goto next;
 		(void) bb_websocket_reply(bbgs->session, buf, len);
+next:
         	bbgs = bbgs->next;
 	}
 }
@@ -65,7 +67,9 @@ static void bb_pipe_body_to(struct bb_pipe *bbp, char *buf, size_t len) {
         if (!bbg) return;
         struct bb_group_session *bbgs = bbg->sessions;
         while(bbgs) {
+		if (bbgs->session == bbp->session && bbp->session->noecho) goto next;
                 (void) bbgs->session->send_body(bbgs->session, buf, len);
+next:
                 bbgs = bbgs->next;
         }
 }
