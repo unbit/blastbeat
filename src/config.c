@@ -488,6 +488,11 @@ static void bb_main_config_add(char *key, char *value) {
                 return;
         }
 
+        is_opt( "memory") {
+		blastbeat.max_memory = strtoll(value, NULL, 10);
+                return;
+        }
+
 }
 
 static void bb_vhost_config_add(char *vhostname, char *key, char *value) {
