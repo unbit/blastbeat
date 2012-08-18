@@ -185,6 +185,9 @@ struct bb_virtualhost {
 	uint64_t max_sessions;
 	uint64_t active_sessions;
 
+	// tx accounter
+	uint64_t tx;
+
 	char *ssl_certificate;
 	char *ssl_key;
 

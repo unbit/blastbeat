@@ -86,6 +86,11 @@ void bb_wq_callback(struct ev_loop *loop, struct ev_io *w, int revents) {
 		// reset the connection activity timer on successfully sent
 		bb_connection_reset_timer(bbc);
 
+		// account transferred bytes to the virtualhost
+		if (bbwi->session) {
+			bbwi->session->vhost->tx+=wlen;
+		}
+
 		bbw->len -= wlen;
 		if (wlen < bbwi->len-bbwi->pos) {
 			bbwi->pos+=wlen;
