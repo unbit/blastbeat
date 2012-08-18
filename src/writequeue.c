@@ -19,7 +19,10 @@ static int wq_push(struct bb_writer *bbw, char *buf, size_t len, int flags, stru
 
 	
 	// do not enqueue more than 8 megabytes (TODO configure that value)		
-	if (bbw->len+len > 8*1024*1024) return -1;
+	if (bbw->len+len > 8*1024*1024) {
+		fprintf(stderr,"too much queued datas\n");
+		return -1;
+	}
 
 	struct bb_writer_item *bbwi = bb_alloc(sizeof(struct bb_writer_item));
 	if (!bbwi) {
@@ -70,7 +73,28 @@ void bb_wq_callback(struct ev_loop *loop, struct ev_io *w, int revents) {
 		if (bbwi->flags & BB_WQ_CLOSE) goto end;
 		if (bbwi->flags & BB_WQ_EOS) goto end2;
 		if (bbwi->len == 0) goto next;
-		ssize_t wlen = bbc->acceptor->write(bbc, bbwi->buf+bbwi->pos, bbwi->len-bbwi->pos);
+
+		size_t bbw_len = bbwi->len-bbwi->pos;
+
+		if (bbwi->session) {
+			// bandwidth check
+			uint64_t bandwidth = bbwi->session->vhost->bandwidth;
+			if (bandwidth) {
+				// if packet is bigger than bucket size, split it
+				size_t available = bandwidth - bbwi->session->vhost->bandwidth_bucket;
+				if (bbw_len > available) {
+					bbw_len -= available;
+				}
+				// ok, we now have a valid chunk, can we send it ?
+				// we have milliseconds resolution
+				ev_tstamp now = bb_milliseconds;
+				// too fast, we have to throttle
+				if (now - bbwi->session->vhost->bandwidth_last_sent <= 0) {
+				}
+			}
+		}
+
+		ssize_t wlen = bbc->acceptor->write(bbc, bbwi->buf+bbwi->pos, bbw_len);
 		if (wlen < 0) {
 			if (errno == EINPROGRESS || errno == EAGAIN || errno == EWOULDBLOCK) {
 				return ;
@@ -92,6 +116,7 @@ void bb_wq_callback(struct ev_loop *loop, struct ev_io *w, int revents) {
 		}
 
 		bbw->len -= wlen;
+
 		if (wlen < bbwi->len-bbwi->pos) {
 			bbwi->pos+=wlen;
 			return;
@@ -111,6 +136,9 @@ end2:
 	bb_session_close(bbwi->session);
 }
 
+static void bb_wq_start(struct bb_writer *bbw) {
+	ev_io_start(blastbeat.loop, &bbw->writer);
+}
 
 
 int bb_wq_push(struct bb_session *bbs, char *buf, size_t len, int flags) {
@@ -120,7 +148,7 @@ int bb_wq_push(struct bb_session *bbs, char *buf, size_t len, int flags) {
 
 	if (wq_push(&bbc->writer, buf, len, flags, bbs)) return -1;
 	// an item has been pushed, start the ev_io
-	ev_io_start(blastbeat.loop, &bbc->writer.writer);
+	bb_wq_start(&bbc->writer);
 	return 0;
 }
 
@@ -130,7 +158,7 @@ int bb_wq_dumb_push(struct bb_connection *bbc, char *buf, size_t len, int flags)
 
         if (wq_push(&bbc->writer, buf, len, flags, NULL)) return -1;
         // an item has been pushed, start the ev_io
-        ev_io_start(blastbeat.loop, &bbc->writer.writer);
+	bb_wq_start(&bbc->writer);
         return 0;
 }
 
@@ -142,7 +170,7 @@ int bb_wq_push_close(struct bb_session *bbs) {
 
 	if (wq_push(&bbc->writer, NULL, 0, BB_WQ_CLOSE, bbs)) return -1;
 	// an item has been pushed, start the ev_io
-	ev_io_start(blastbeat.loop, &bbc->writer.writer);
+	bb_wq_start(&bbc->writer);
 	return 0;
 }
 
@@ -156,7 +184,7 @@ int bb_wq_push_eos(struct bb_session *bbs) {
 
 	if (wq_push(&bbc->writer, NULL, 0, BB_WQ_EOS, bbs)) return -1;
         // an item has been pushed, start the ev_io
-        ev_io_start(blastbeat.loop, &bbc->writer.writer);
+	bb_wq_start(&bbc->writer);
         return 0;
 }
 
@@ -175,6 +203,6 @@ int bb_wq_push_copy(struct bb_session *bbs, char *buf, size_t len, int flags) {
 
 	if (wq_push(&bbc->writer, new_buf, len, flags, bbs)) return -1;
 	// an item has been pushed, start the ev_io
-	ev_io_start(blastbeat.loop, &bbc->writer.writer);
+	bb_wq_start(&bbc->writer);
 	return 0;
 }

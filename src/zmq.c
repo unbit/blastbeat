@@ -112,25 +112,18 @@ static void manage_ping(char *identity, size_t len) {
 	}
 }
 
-void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
+static void bb_zmq_manage_messages() {
 
-        uint32_t zmq_events = 0;
-        size_t opt_len = sizeof(uint32_t);
-
-        for(;;) {
-                int ret = zmq_getsockopt(blastbeat.router, ZMQ_EVENTS, &zmq_events, &opt_len);
-                if (ret < 0) {
-                        perror("zmq_getsockopt()");
-                        break;
-                }
-
-                if (zmq_events & ZMQ_POLLIN) {
                         uint64_t more = 0;
                         size_t more_size = sizeof(more);
                         int i;
                         zmq_msg_t msg[4];
+			zmq_msg_init(&msg[0]);	
+			zmq_msg_init(&msg[1]);	
+			zmq_msg_init(&msg[2]);	
+			zmq_msg_init(&msg[3]);	
+
                         for(i=0;i<4;i++) {
-                                zmq_msg_init(&msg[i]);
                                 zmq_recv(blastbeat.router, &msg[i], ZMQ_NOBLOCK);
                                 if (zmq_getsockopt(blastbeat.router, ZMQ_RCVMORE, &more, &more_size)) {
                                         perror("zmq_getsockopt()");
@@ -387,11 +380,33 @@ next:
                         zmq_msg_close(&msg[1]);
                         zmq_msg_close(&msg[2]);
                         zmq_msg_close(&msg[3]);
-
-                        continue;
-                }
-
-                break;
-        }
 }
 
+
+
+
+static void bb_zmq_run() {
+        uint32_t zmq_events = 0;
+        size_t opt_len = sizeof(uint32_t);
+
+	ev_prepare_stop(blastbeat.loop, &blastbeat.zmq_check);
+
+        int ret = zmq_getsockopt(blastbeat.router, ZMQ_EVENTS, &zmq_events, &opt_len);
+        if (ret < 0) {
+        	perror("zmq_getsockopt()");
+		return;
+        }
+
+        if (zmq_events & ZMQ_POLLIN) {
+		bb_zmq_manage_messages();
+		ev_prepare_start(blastbeat.loop, &blastbeat.zmq_check);
+	}
+}
+
+void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
+	bb_zmq_run();
+}
+
+void bb_zmq_check_cb(struct ev_loop *loop, struct ev_prepare *w, int revents) {
+	bb_zmq_run();
+}

@@ -40,7 +40,8 @@
 #define ntohll(y) (((uint64_t)ntohl(y)) << 32 | ntohl(y>>32))
 #define htonll(y) (((uint64_t)htonl(y)) << 32 | htonl(y>>32))
 
-#define bb_now round(ev_now(blastbeat.loop));
+#define bb_now round(ev_now(blastbeat.loop))
+#define bb_milliseconds round(ev_now(blastbeat.loop)*1000)
 
 #define BB_UUID_LEN	16
 
@@ -189,6 +190,11 @@ struct bb_virtualhost {
 
 	// tx accounter
 	uint64_t tx;
+
+	// bandwidth control
+	uint64_t bandwidth;
+	uint64_t bandwidth_bucket;
+	uint64_t bandwidth_last_sent;
 
 	char *ssl_certificate;
 	char *ssl_key;
@@ -524,6 +530,8 @@ struct blastbeat_server {
 	ev_timer pinger;
 	ev_timer stats;
 
+	ev_prepare zmq_check;
+
 };
 
 void bb_ini_config(char *);
@@ -560,6 +568,7 @@ void bb_session_close(struct bb_session *);
 void bb_raw_zmq_send_msg(struct bb_session *, char *, size_t, char *, size_t, char *, size_t, char *, size_t);
 void bb_zmq_send_msg(struct bb_session *, char *, size_t, char *, size_t, char *, size_t, char *, size_t);
 void bb_zmq_receiver(struct ev_loop *, struct ev_io *, int);
+void bb_zmq_check_cb(struct ev_loop *, struct ev_prepare *, int);
 
 void bb_ssl_info_cb(SSL const *, int, int);
 

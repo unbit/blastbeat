@@ -98,6 +98,8 @@ connection close is triggered:
 */
 
 void bb_connection_close(struct bb_connection *bbc) {
+
+	fprintf(stderr,"close connection\n");
 	// a connection could be null (for persistent sessions...)
 	if (!bbc) return;
 
@@ -768,6 +770,8 @@ int main(int argc, char *argv[]) {
 
 	ev_io_init(&blastbeat.event_zmq, bb_zmq_receiver, blastbeat.zmq_fd, EV_READ);
 	ev_io_start(blastbeat.loop, &blastbeat.event_zmq);
+
+	ev_prepare_init(&blastbeat.zmq_check, bb_zmq_check_cb);
 
 	// the first ping is after 1 second
 	ev_timer_init(&blastbeat.pinger, pinger_cb, 1.0, blastbeat.ping_freq);

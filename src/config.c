@@ -535,6 +535,14 @@ static void bb_vhost_config_add(char *vhostname, char *key, char *value) {
                 return;
         }
 
+        is_opt( "bandwidth") {
+		// kbit/s
+		vhost->bandwidth = strtoll(value, NULL, 10) * 1000;
+		// translate it to bytes
+		vhost->bandwidth = vhost->bandwidth/8;
+                return;
+        }
+
         return;
 }
 
