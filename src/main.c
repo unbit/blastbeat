@@ -99,7 +99,6 @@ connection close is triggered:
 
 void bb_connection_close(struct bb_connection *bbc) {
 
-	fprintf(stderr,"close connection\n");
 	// a connection could be null (for persistent sessions...)
 	if (!bbc) return;
 
