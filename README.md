@@ -53,6 +53,8 @@ header. SPDY sessions do not support chunked messages)
 
 * **spawn** (sent from BlastBeat to dealers whenever it spawn)
 
+* **pipe** (enable pipe mode. documentation coming soon)
+
 Commands in development/study/analysis
 
 * **move** (move the session to another node)
@@ -71,7 +73,11 @@ Commands in development/study/analysis
              
 * **frag** (send a fragment to the client)
 
+* **bandwidth** (limit bandwidth for the current connection)
 
+* **ssl** (send key, cert and diffie-helman to enable ssl/tls via Server Name Indication (SNI) )
+
+* **sslverify** (if in SNI mode, force client ssl authentication using the supplied CA)
 
 feel free to propose your ideas...
 
