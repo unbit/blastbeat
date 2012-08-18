@@ -63,6 +63,8 @@
 #define BLASTBEAT_CACHE_MISS	-1
 #define BLASTBEAT_CACHE_ERROR	-2
 
+#define BB_TOKEN_BUCKET_SPEED 0.03
+
 struct bb_virtualhost;
 struct bb_session;
 
@@ -167,6 +169,17 @@ struct bb_cache_entry {
 	struct bb_cache_item *tail;
 };
 
+struct bb_throttle {
+	ev_timer throttle;
+	struct bb_virtualhost *vhost;
+};
+
+struct bb_connection_throttle {
+	ev_prepare throttle;
+	struct bb_virtualhost *vhost;
+	struct bb_connection *connection;
+};
+
 // a blastbeat virtualhost
 struct bb_virtualhost {
 	char *name;
@@ -194,7 +207,9 @@ struct bb_virtualhost {
 	// bandwidth control
 	uint64_t bandwidth;
 	uint64_t bandwidth_bucket;
-	uint64_t bandwidth_last_sent;
+	struct bb_throttle throttle;
+	// set to 1 if a virtualhost is throttled
+	int throttled;
 
 	char *ssl_certificate;
 	char *ssl_key;
@@ -334,6 +349,8 @@ struct bb_connection {
 
 	// write queue
 	struct bb_writer writer;
+	// throttle system
+	struct bb_connection_throttle throttle;
 
 	struct bb_session *sessions_head;
 	struct bb_session *sessions_tail;
@@ -522,6 +539,8 @@ struct blastbeat_server {
 	uint32_t sht_size;
 	struct bb_session_entry *sht;
 
+	uint64_t writequeue_buffer;
+
 	struct bb_hostname *hnht[BLASTBEAT_HOSTNAME_HTSIZE];
 
 	struct bb_dealer *dealers;
@@ -640,3 +659,6 @@ int bb_pipe_add(struct bb_session *, char *, size_t);
 int bb_check_for_pipe(struct bb_session *, char *, size_t, char *, size_t);
 
 SSL_CTX *bb_new_ssl_ctx(void);
+
+void bb_throttle_cb(struct ev_loop *, struct ev_timer *, int);
+void bb_connection_throttle_cb(struct ev_loop *, struct ev_prepare *, int);

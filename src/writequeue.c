@@ -14,12 +14,29 @@ extern struct blastbeat_server blastbeat;
 
 	The offset in each item is required for managing incomplete writes
 
+	Bandwidth limiting
+
+	limiting per-vhost bandwidth is vital for QoS
+        the writequeue uses a token bucket algorithm
+
+	->bandwidth -> is the bandiwdth limit (in bytes per second)
+        ->bandwidth_bucket -> is initialized to 0 and incremented by ((->bandwidth*30)/1000) bytes every 30ms
+	(30ms has been choosen as a good compromise between performance and load, but could be tunable)
+
+	as soon as ->bandwidth_bucket == ->bandwidth the token-add hook is stopped (will be restarted as soon as it decrease)
+
+	when the underlying socket is ready to WRITE data, N tokens are removed from the bucket (where N is the size of the packet,
+	if the packet is bigger it will be split)
+
+	if a WRITE event happens when the token is 0, we have a non conformant packet, the write event will be stopped, and will be restarted
+	at the next token-add hook
+
 */
 static int wq_push(struct bb_writer *bbw, char *buf, size_t len, int flags, struct bb_session *bbs) {
 
 	
-	// do not enqueue more than 8 megabytes (TODO configure that value)		
-	if (bbw->len+len > 8*1024*1024) {
+	// check writequeue_buffer
+	if (bbw->len+len > blastbeat.writequeue_buffer) {
 		fprintf(stderr,"too much queued datas\n");
 		return -1;
 	}
@@ -64,6 +81,17 @@ static void wq_decapitate(struct bb_writer *bbw) {
 	bb_free(head, sizeof(struct bb_writer_item));
 }
 
+static void bb_throttle(struct bb_virtualhost *vhost, struct bb_connection *bbc) {
+	// mark the vhost as throttled
+	vhost->throttled = 1;
+	// stop the writer
+	ev_io_stop(blastbeat.loop, &bbc->writer.writer);
+	bbc->throttle.vhost = vhost;
+	bbc->throttle.connection = bbc;
+	// wait for unthrottling
+	ev_prepare_start(blastbeat.loop, &bbc->throttle.throttle);
+}
+
 void bb_wq_callback(struct ev_loop *loop, struct ev_io *w, int revents) {
 	struct bb_writer *bbw = (struct bb_writer *) w;
 	struct bb_connection *bbc = bbw->connection;
@@ -79,18 +107,18 @@ void bb_wq_callback(struct ev_loop *loop, struct ev_io *w, int revents) {
 		if (bbwi->session) {
 			// bandwidth check
 			uint64_t bandwidth = bbwi->session->vhost->bandwidth;
-			if (bandwidth) {
+			if (bandwidth > 0) {
+				// full bucket detected throttle the connection
+				if (bbwi->session->vhost->bandwidth_bucket == 0) {
+					bb_throttle(bbwi->session->vhost, bbc);
+					return;
+				}
+
 				// if packet is bigger than bucket size, split it
-				size_t available = bandwidth - bbwi->session->vhost->bandwidth_bucket;
-				if (bbw_len > available) {
-					bbw_len -= available;
+				if (bbw_len > bbwi->session->vhost->bandwidth_bucket) {
+					bbw_len = bbwi->session->vhost->bandwidth_bucket;
 				}
-				// ok, we now have a valid chunk, can we send it ?
-				// we have milliseconds resolution
-				ev_tstamp now = bb_milliseconds;
-				// too fast, we have to throttle
-				if (now - bbwi->session->vhost->bandwidth_last_sent <= 0) {
-				}
+
 			}
 		}
 
@@ -113,6 +141,9 @@ void bb_wq_callback(struct ev_loop *loop, struct ev_io *w, int revents) {
 		// account transferred bytes to the virtualhost
 		if (bbwi->session) {
 			bbwi->session->vhost->tx+=wlen;
+			if (bbwi->session->vhost->bandwidth > 0) {
+				bbwi->session->vhost->bandwidth_bucket -= wlen;
+			}
 		}
 
 		bbw->len -= wlen;
@@ -205,4 +236,43 @@ int bb_wq_push_copy(struct bb_session *bbs, char *buf, size_t len, int flags) {
 	// an item has been pushed, start the ev_io
 	bb_wq_start(&bbc->writer);
 	return 0;
+}
+
+void bb_connection_throttle_cb(struct ev_loop *loop, struct ev_prepare *w, int revents) {
+	struct bb_connection_throttle *bbct = (struct bb_connection_throttle *) w;
+	struct bb_virtualhost *vhost = bbct->vhost;
+	struct bb_connection *bbc = bbct->connection;
+	if (!vhost || !bbc) {
+		fprintf(stderr,"BUG in throttle system !!!\n");
+		return;
+	}
+
+	// no more throttled
+	if (vhost->throttled == 0) {
+		ev_prepare_stop(blastbeat.loop, w);
+		// just for safety (could be useful in future implementations)
+		bbct->vhost = NULL;
+		bbct->connection = NULL;
+		bb_wq_start(&bbc->writer);
+	}
+}
+
+void bb_throttle_cb(struct ev_loop *loop, struct ev_timer *w, int revents) {
+	struct bb_throttle *bbt = (struct bb_throttle *) w;
+	struct bb_virtualhost *vhost = bbt->vhost;
+
+	// bucket could be bigger if we decrease bandwidth from the dealer
+	// (will be possibile soon ;)
+	if (vhost->bandwidth_bucket >= vhost->bandwidth) return;
+
+	uint64_t token = ((vhost->bandwidth*30)/1000);
+	if (vhost->bandwidth_bucket + token > vhost->bandwidth) {
+		vhost->bandwidth_bucket = vhost->bandwidth;
+	}
+	else {
+		vhost->bandwidth_bucket += token;
+	}
+	// unthrottle
+	vhost->throttled = 0;
+
 }

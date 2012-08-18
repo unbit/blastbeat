@@ -107,6 +107,8 @@ void bb_connection_close(struct bb_connection *bbc) {
 	// stop I/O
 	ev_io_stop(blastbeat.loop, &bbc->reader.reader);
 	ev_io_stop(blastbeat.loop, &bbc->writer.writer);
+	// stop throttling
+	ev_prepare_stop(blastbeat.loop, &bbc->throttle.throttle);
 	// clear SSL if required
 	if (bbc->ssl) {
 		// this should be better managed, but why wasting resources ?
@@ -399,6 +401,9 @@ static void bb_accept_callback(struct ev_loop *loop, struct ev_io *w, int revent
 	ev_io_init(&bbc->writer.writer, bb_wq_callback, client, EV_WRITE);
 	bbc->writer.connection = bbc;
 
+	// prepare the throttle hook
+	ev_prepare_init(&bbc->throttle.throttle, bb_connection_throttle_cb);
+
 	// prepare a low level connection timeout
 	ev_timer_init(&bbc->timeout, connection_timer_cb, 0.0, 0.0);
 	// set the deafult timeout
@@ -578,6 +583,13 @@ static void bb_vhosts_fix() {
 			}
 			memset(vhosts->cache, 0, sizeof(struct bb_cache_entry) * vhosts->cht_size);
 		}
+
+		if (vhosts->bandwidth > 0) {
+			// start filling the token bucket (30ms frequency);
+			ev_timer_init(&vhosts->throttle.throttle, bb_throttle_cb, BB_TOKEN_BUCKET_SPEED, BB_TOKEN_BUCKET_SPEED);
+			vhosts->throttle.vhost = vhosts;
+			ev_timer_start(blastbeat.loop, &vhosts->throttle.throttle);
+		}
 		vhosts = vhosts->next;
 	}
 
@@ -683,6 +695,8 @@ int main(int argc, char *argv[]) {
 	blastbeat.gid = "nogroup";
 	blastbeat.max_hops = 10;
 	blastbeat.max_sessions = 10000;
+	// 8 MB per-connection
+	blastbeat.writequeue_buffer = 8*1024*1024;
 	// 2GB max_memory
 	blastbeat.max_memory = (uint64_t) 2048*1024*1024;
 	// default 30 minutes timeout
@@ -703,7 +717,10 @@ int main(int argc, char *argv[]) {
 		exit(1);
 	}
 
-	// fix acceptors/vhosts/cache...
+
+	blastbeat.loop = EV_DEFAULT;
+
+	// fix acceptors/vhosts/cache/bandwidth...
 	bb_vhosts_fix();
 
 	fprintf(stderr,"*** starting BlastBeat ***\n");
@@ -735,8 +752,6 @@ int main(int argc, char *argv[]) {
 	}
 	memset(blastbeat.sht, 0, sizeof(struct bb_session_entry) * blastbeat.sht_size);
 	
-
-	blastbeat.loop = EV_DEFAULT;
 
 	// report config, bind sockets and assign ssl keys/certificates
 	struct bb_acceptor *acceptor = blastbeat.acceptors;
