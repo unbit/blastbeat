@@ -510,6 +510,18 @@ The algorithm used is the 'token bucket' with a resolution of 30ms.
 Albeit blastbeat is not intended for big-files serving, you can use it as a streaming (audio/video) server
 so limiting bandwidth could be a good solution for QoS
 
+Take in account limiting bandwidth could mean increasing a lot (in terms of memory) the writequeue required
+for non blocking writes. By default you can enqueue upto 8Megabytes of datas, you can increase (or decrease) that value
+with the 'writequeue-buffer' option
+
+```ini
+[blastbeat]
+bind = 0.0.0.0:80
+zmq = tcp://192.168.173.5:5000
+; 10 mbytes per-connection
+writequeue-buffer = 10485760
+```
+
 ## Memory and Security
 
 New web technologies introduce a new set of security problems, most of them are related to resource usage.
