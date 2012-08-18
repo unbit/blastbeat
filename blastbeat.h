@@ -40,6 +40,8 @@
 #define ntohll(y) (((uint64_t)ntohl(y)) << 32 | ntohl(y>>32))
 #define htonll(y) (((uint64_t)htonl(y)) << 32 | htonl(y>>32))
 
+#define bb_now round(ev_now(blastbeat.loop));
+
 #define BB_UUID_LEN	16
 
 // flags for the writequeue
@@ -67,7 +69,7 @@ struct bb_session;
 struct bb_dealer {
         char *identity;
 	size_t len;
-        time_t last_seen;
+        ev_tstamp last_seen;
 	int status;
 	int spawn_sent;
 	uint64_t load;
@@ -372,7 +374,7 @@ struct bb_session {
 	struct bb_virtualhost *vhost;
 
 	// used for monitoring inactivity
-	time_t last_seen;
+	ev_tstamp last_seen;
 
 	// persistent sessions can be re-called (useful for socket.io in xhr-polling)
 	int persistent;

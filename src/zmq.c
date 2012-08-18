@@ -92,8 +92,8 @@ void bb_zmq_send_msg(struct bb_session *bbs, char *identity, size_t identity_len
 
 
 
-static void update_dealer(struct bb_dealer *bbd, time_t now) {
-	bbd->last_seen = now;
+static void update_dealer(struct bb_dealer *bbd, ev_tstamp now) {
+	bbd->last_seen = bb_now;
 	if (bbd->status == BLASTBEAT_DEALER_OFF) {
 		bbd->status = BLASTBEAT_DEALER_AVAILABLE;
 		fprintf(stderr, "node \"%s\" is available\n", bbd->identity);
@@ -102,7 +102,7 @@ static void update_dealer(struct bb_dealer *bbd, time_t now) {
 
 static void manage_ping(char *identity, size_t len) {
 	struct bb_dealer *bbd = blastbeat.dealers;
-	time_t now = time(NULL);
+	ev_tstamp now = bb_now;
 	while(bbd) {
 		if (!bb_strcmp(identity, len, bbd->identity, bbd->len)) {
 			update_dealer(bbd, now);
@@ -157,7 +157,7 @@ void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
                         struct bb_session *bbs = bb_sht_get(zmq_msg_data(&msg[1]));
                         if (!bbs) goto next;
 			
-			time_t now = time(NULL);
+			ev_tstamp now = bb_now;
 			bbs->last_seen = now;
 			update_dealer(bbs->dealer, now);
 

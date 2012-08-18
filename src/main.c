@@ -426,10 +426,10 @@ static void pinger_cb(struct ev_loop *loop, struct ev_timer *w, int revents) {
 	struct bb_dealer *bbd = blastbeat.dealers;
 	// get events before starting a potentially long write session
 	ev_feed_event(blastbeat.loop, &blastbeat.event_zmq, EV_READ);
-	time_t now = time(NULL);
+	ev_tstamp now = bb_now;
 	while(bbd) {
-		time_t delta = now - bbd->last_seen;
-		if (delta > blastbeat.ping_freq) {
+		ev_tstamp delta = now - bbd->last_seen;
+		if (delta >= blastbeat.ping_freq) {
 			if (delta > (blastbeat.ping_freq * 3) && bbd->status == BLASTBEAT_DEALER_AVAILABLE) {
 				bbd->status = BLASTBEAT_DEALER_OFF;
 				fprintf(stderr,"node \"%s\" is OFF\n", bbd->identity);
