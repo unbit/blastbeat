@@ -30,6 +30,9 @@ void bb_session_close(struct bb_session *bbs) {
         // clear the HTTP request structure
         bb_initialize_request(bbs);
 
+	// clear the HTTP response structure
+	bb_initialize_response(bbs);
+
 	// clear dynamic memory areas (if required)
 	if (bbs->push_queue) {
 		bb_free(bbs->push_queue, bbs->push_queue_len);
@@ -270,12 +273,18 @@ void bb_initialize_request(struct bb_session *bbs) {
 		if (bbs->request.websocket_message_queue) {
 			bb_free(bbs->request.websocket_message_queue, bbs->request.websocket_message_queue_len);
 		}
-		for(i=0;i<=bbs->request.header_pos;i++) {
+
+		if (bbs->request.url)
+			bb_free(bbs->request.url, bbs->request.url_len);
+
+		for(i=0;i<bbs->request.headers_count;i++) {
 			if (bbs->request.headers[i].key)
 				bb_free(bbs->request.headers[i].key, bbs->request.headers[i].keylen);
 			if (bbs->request.headers[i].value)
 				bb_free(bbs->request.headers[i].value, bbs->request.headers[i].vallen);
 		}
+		if (bbs->request.headers)
+			bb_free(bbs->request.headers, sizeof(struct bb_http_header)*bbs->request.headers_count);
 		// clear all
 		memset(&bbs->request, 0, sizeof(struct bb_request));
 	}
@@ -289,9 +298,14 @@ void bb_initialize_request(struct bb_session *bbs) {
 
 // each session has a response structure, this strcture can be cleared multiple times
 void bb_initialize_response(struct bb_session *bbs) {
+
+	if (bbs->response.headers)
+		bb_free(bbs->response.headers, sizeof(struct bb_http_header)*bbs->response.headers_count);
+
 	if (bbs->response.initialized) {
 		memset(&bbs->response, 0, sizeof(struct bb_response));
 	}
+
 	http_parser_init(&bbs->response.parser, HTTP_RESPONSE);
         bbs->response.parser.data = bbs;
 	bbs->response.last_was_value = 1;
@@ -695,6 +709,7 @@ int main(int argc, char *argv[]) {
 	blastbeat.gid = "nogroup";
 	blastbeat.max_hops = 10;
 	blastbeat.max_sessions = 10000;
+	blastbeat.max_headers = 64;
 	// 8 MB per-connection
 	blastbeat.writequeue_buffer = 8*1024*1024;
 	// 2GB max_memory

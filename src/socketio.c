@@ -227,7 +227,7 @@ int bb_manage_socketio(struct bb_session *bbs, char *method, size_t method_len, 
 			char *supported = "websocket";
                         memcpy(handshake+36, ":30:60:", 7);
                         memcpy(handshake+36+7, supported, 9);
-			if (bb_spdy_raw_send_headers(bbs, 0, 7, (struct bb_http_header *) handshake_spdy_headers, "200", "HTTP/1.1", 0)) return -1;
+			if (bb_spdy_raw_send_headers(bbs, 7, (struct bb_http_header *) handshake_spdy_headers, "200", "HTTP/1.1", 0)) return -1;
 			if (bb_spdy_send_body(bbs, handshake, 52)) return -1;
 			if (bb_spdy_send_end(bbs)) return -1;
 		}

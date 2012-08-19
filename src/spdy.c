@@ -244,7 +244,7 @@ int bb_spdy_push_headers(struct bb_session *bbs) {
         // zzzzzzzzzzzzzzzzzzZZXXstatusXXyyyXXversionXXyyyyyyyy
         // transform all of the headers keys to lowercase
         size_t spdy_len = 52;
-        for(i=1;i<=bbs->response.header_pos;i++) {
+        for(i=0;i<bbs->response.headers_count;i++) {
                 spdy_len += 2 + bbs->response.headers[i].keylen + 2 + bbs->response.headers[i].vallen;
                 size_t j;
                 for(j=0;j<bbs->response.headers[i].keylen;j++) {
@@ -296,7 +296,7 @@ int bb_spdy_push_headers(struct bb_session *bbs) {
         buf[17] = 0x00;
 
 	// set the number of headers
-        uint16_t hlen = htons(bbs->response.header_pos+2);
+        uint16_t hlen = htons(bbs->response.headers_count+2);
         memcpy(buf+18, &hlen, 2);
 
         char *ptr = buf+20;
@@ -322,7 +322,7 @@ int bb_spdy_push_headers(struct bb_session *bbs) {
         memcpy(ptr, proto, 8); ptr+=8;
 
         // generate spdy headers from respons headers
-        for(i=1;i<=bbs->response.header_pos;i++) {
+        for(i=0;i<bbs->response.headers_count;i++) {
                 slen = htons(bbs->response.headers[i].keylen);
                 memcpy(ptr, &slen, 2); ptr += 2;
                 memcpy(ptr, bbs->response.headers[i].key, bbs->response.headers[i].keylen);
@@ -359,13 +359,13 @@ int bb_spdy_push_headers(struct bb_session *bbs) {
         return 0;
 }
 
-int bb_spdy_raw_send_headers(struct bb_session *bbs, off_t headers_pos, off_t headers_count, struct bb_http_header *headers, char status[3], char protocol[8], int lower) {
+int bb_spdy_raw_send_headers(struct bb_session *bbs, off_t headers_count, struct bb_http_header *headers, char status[3], char protocol[8], int lower) {
 	int i;
 	// calculate the destination buffer size
 	// zzzzzzzzzzzzzzZZXXstatusXXyyyXXversionXXyyyyyyyy
 	// transform all of the headers keys to lowercase
 	size_t spdy_len = 48;
-	for(i=headers_pos;i<headers_count;i++) {
+	for(i=0;i<headers_count;i++) {
 		spdy_len += 2 + headers[i].keylen + 2 + headers[i].vallen;
 		if (!lower) continue;
 		size_t j;
@@ -401,7 +401,7 @@ int bb_spdy_raw_send_headers(struct bb_session *bbs, off_t headers_pos, off_t he
 	buf[13] = 0x00;
 
 	// set the number of headers
-	uint16_t hlen = htons((headers_count-headers_pos)+2);
+	uint16_t hlen = htons(headers_count+2);
 	memcpy(buf+14, &hlen, 2);
 
 	char *ptr = buf+16;
@@ -423,7 +423,7 @@ int bb_spdy_raw_send_headers(struct bb_session *bbs, off_t headers_pos, off_t he
 	memcpy(ptr, protocol, 8); ptr+=8;	
 
 	// generate spdy headers from response headers
-	for(i=headers_pos;i<headers_count;i++) {
+	for(i=0;i<headers_count;i++) {
 		slen = htons(headers[i].keylen);
 		memcpy(ptr, &slen, 2); ptr += 2;
 		memcpy(ptr, headers[i].key, headers[i].keylen);
@@ -469,12 +469,12 @@ static int bb_spdy_send_headers(struct bb_session *bbs, char *unused_buf, size_t
         if (snprintf(proto, 9, "HTTP/%d.%d", bbs->response.parser.http_major, bbs->response.parser.http_minor) != 8) {
                 return -1;
         }
-	return bb_spdy_raw_send_headers(bbs, 1, bbs->response.header_pos+1, bbs->response.headers, status, proto, 1);
+	return bb_spdy_raw_send_headers(bbs, bbs->response.headers_count, bbs->response.headers, status, proto, 1);
 }
 
 
 static int bb_spdy_send_cache_headers(struct bb_session *bbs, struct bb_cache_item *bbci) {
-	return bb_spdy_raw_send_headers(bbs, 0, bbci->headers_count, bbci->headers, bbci->status, bbci->protocol, 1);
+	return bb_spdy_raw_send_headers(bbs, bbci->headers_count, bbci->headers, bbci->status, bbci->protocol, 1);
 }
 
 int bb_spdy_send_body(struct bb_session *bbs, char *buf, size_t len) {

@@ -30,8 +30,6 @@
 #include <ctype.h>
 #include <math.h>
 
-#define MAX_HEADERS 100
-
 #define MAX_CHUNK_STORAGE ((sizeof("18446744073709551616") * 2) + 3)
 #define MAX_CONTENT_LENGTH (sizeof("18446744073709551616") + 5)
 #ifndef ULLONG_MAX
@@ -50,6 +48,8 @@
 #define BB_WQ_CLOSE	(1 << 1)
 #define BB_WQ_EOS	(1 << 2)
 
+#define MAX_URL_SIZE		65536-2
+#define MAX_HEADERS_SIZE	65536
 
 #define BLASTBEAT_BUFSIZE	8192
 #define BLASTBEAT_HOSTNAME_HTSIZE	65536
@@ -239,13 +239,17 @@ struct bb_request {
 	// the joyent http_parser
 	http_parser parser;
 	// parsed headers
-	off_t header_pos;
+	off_t headers_count;
+	size_t headers_len;
 	// used by the header parser
 	int last_was_value;
 	// the list of headers (must be freed after each request)
-	struct bb_http_header headers[MAX_HEADERS];
+	struct bb_http_header *headers;
 	char http_major;
 	char http_minor;
+
+	char *url;
+	size_t url_len;
 
 	int can_chunk;
 
@@ -270,11 +274,11 @@ struct bb_response {
 	int initialized;
 	// the joyent http_parser
         http_parser parser;
-	off_t header_pos;
+	off_t headers_count;
         // used by the header parser
         int last_was_value;
-	// the list of headers (mus not allocate memory !!!)
-	struct bb_http_header headers[MAX_HEADERS];
+	// the list of headers (must not allocate memory for content!!!)
+	struct bb_http_header *headers;
 	uint64_t content_length;
 	uint64_t written_bytes;
 	int close;
@@ -523,6 +527,8 @@ struct blastbeat_server {
 	uint64_t active_sessions;
 	uint64_t active_connections;
 
+	uint64_t max_headers;
+
 	uint64_t max_memory;
 	uint64_t allocated_memory;
 	uint64_t startup_memory;
@@ -648,7 +654,7 @@ int bb_socketio_message(struct bb_session *, char *, size_t);
 
 int bb_http_recv_body(struct bb_session *, char *, size_t);
 
-int bb_spdy_raw_send_headers(struct bb_session *, off_t, off_t, struct bb_http_header *, char[], char[], int);
+int bb_spdy_raw_send_headers(struct bb_session *, off_t, struct bb_http_header *, char[], char[], int);
 int bb_spdy_send_body(struct bb_session *, char *, size_t);
 int bb_spdy_send_end(struct bb_session *);
 

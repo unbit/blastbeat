@@ -50,7 +50,6 @@ static int cache_body(struct http_parser *parser, const char *buf, size_t len) {
 	struct bb_cache_item *bbci = (struct bb_cache_item *) parser->data;
 	char *tmp_buf = bb_realloc(bbci->body, bbci->body_len, len);
 	if (!tmp_buf) {
-		bb_error("unable to allocate cache body:");
 		return -1;
 	}
 	if (!bbci->body && !bbci->http_end_of_first_line) {
@@ -64,13 +63,16 @@ static int cache_body(struct http_parser *parser, const char *buf, size_t len) {
 
 static int cache_header_field_cb(http_parser *parser, const char *buf, size_t len) {
         struct bb_cache_item *bbci = (struct bb_cache_item *) parser->data;
+
+        if (bbci->headers_len + len > MAX_HEADERS_SIZE) return -1;
+
         if (bbci->last_was_value) {
+		if (bbci->headers_count + 1 > blastbeat.max_headers) return -1;
 		struct bb_http_header *bbhh = bb_realloc(bbci->headers, sizeof(struct bb_http_header)*bbci->headers_count, sizeof(struct bb_http_header));
 		if (!bbhh) {
-			bb_error("unable to allocate memory for cache headers");
 			return -1;
 		}
-		bbci->headers_len+=sizeof(struct bb_http_header);
+		bbci->headers_len += sizeof(struct bb_http_header);
 		// is it the first header ?
 		if (bbci->headers_count == 0) {
 			bbci->http_end_of_first_line = (char *) buf-2;
@@ -78,26 +80,32 @@ static int cache_header_field_cb(http_parser *parser, const char *buf, size_t le
 		bbci->headers = bbhh;
 		int pos = bbci->headers_count;
                 bbci->headers_count++;
+
+		bbci->headers[pos].value = NULL;
+		bbci->headers[pos].vallen = 0;
+		bbci->headers[pos].keylen = 0;
+
                 bbci->headers[pos].key = bb_alloc(len);
 		if (!bbci->headers[pos].key) {
-			bb_error("malloc()");
 			return -1;
 		}
-		bbci->headers_len+=len;
+
                 memcpy(bbci->headers[pos].key, buf, len);
 		bbci->headers[pos].keylen = len;
+
+		bbci->headers_len += len;
         }
         else {
 		int pos = bbci->headers_count-1;
 		char *tmp_buf = bb_realloc(bbci->headers[pos].key, bbci->headers[pos].keylen, len);
 		if (!tmp_buf) {
-			bb_error("realloc()");
 			return -1;
 		}
-		bbci->headers_len+= len;
 		bbci->headers[pos].key = tmp_buf;
                 memcpy(bbci->headers[pos].key + bbci->headers[pos].keylen, buf, len);
                 bbci->headers[pos].keylen += len;
+
+		bbci->headers_len+= len;
         }
         bbci->last_was_value = 0;
         return 0;
@@ -105,27 +113,30 @@ static int cache_header_field_cb(http_parser *parser, const char *buf, size_t le
 
 static int cache_header_value_cb(http_parser *parser, const char *buf, size_t len) {
 	struct bb_cache_item *bbci = (struct bb_cache_item *) parser->data;
+
+        if (bbci->headers_len + len > MAX_HEADERS_SIZE) return -1;
         int pos = bbci->headers_count-1;
+
         if (!bbci->last_was_value) {
                 bbci->headers[pos].value = bb_alloc(len);
 		if (!bbci->headers[pos].value) {
-			bb_error("malloc()");
 			return -1;
 		}
-		bbci->headers_len+=len;
                 memcpy(bbci->headers[pos].value, buf, len);
                 bbci->headers[pos].vallen = len;
+
+		bbci->headers_len+=len;
         }
         else {
 		char *tmp_buf = bb_realloc(bbci->headers[pos].value, bbci->headers[pos].vallen, len);	
 		if (!tmp_buf) {
-			bb_error("realloc()");
 			return -1;
 		}
-		bbci->headers_len+=len;
 		bbci->headers[pos].value = tmp_buf;
                 memcpy(bbci->headers[pos].value + bbci->headers[pos].vallen, buf, len);
                 bbci->headers[pos].vallen += len;
+
+		bbci->headers_len+=len;
         }
         bbci->last_was_value = 1;
         return 0;
@@ -324,7 +335,6 @@ void bb_cache_store(struct bb_session *bbs, char *buf, size_t len, int frag) {
 
 	struct bb_cache_item *bbci = bb_alloc(sizeof(struct bb_cache_item));
 	if (!bbci) {
-		bb_error("malloc()");
 		return;
 	}
 	memset(bbci, 0, sizeof(struct bb_cache_item));
@@ -332,7 +342,6 @@ void bb_cache_store(struct bb_session *bbs, char *buf, size_t len, int frag) {
 	if (frag) {
 		bbci->body = bb_alloc(http_buf_len);
 		if (!bbci->body) {
-			bb_error("malloc()");
 			goto clear;
 		}		
 		memcpy(bbci->body, http_buf, http_buf_len);
@@ -358,7 +367,6 @@ void bb_cache_store(struct bb_session *bbs, char *buf, size_t len, int frag) {
 	bbci->http_first_line_len = bbci->http_end_of_first_line-http_buf;
 	bbci->http_first_line = bb_alloc(bbci->http_first_line_len);
 	if (!bbci->http_first_line) {
-		bb_error("malloc()");
 		goto clear;
 	}
 	memcpy(bbci->http_first_line, http_buf, bbci->http_first_line_len);
@@ -371,7 +379,6 @@ store:
 
         bbci->key = bb_alloc(keylen);
 	if (!bbci->key) {
-		bb_error("malloc()");
 		goto clear;
 	}
 

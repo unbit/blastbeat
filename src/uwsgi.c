@@ -68,13 +68,13 @@ int bb_uwsgi(struct bb_session *bbs) {
 	if (add_uwsgi_item(bbs, "REQUEST_METHOD", 14, (char *)r_method, strlen(r_method), 0)) return -1;
 	if (add_uwsgi_item(bbs, "SCRIPT_NAME", 11, "", 0, 0)) return -1;
 
-	char *query_string = memchr(bbs->request.headers[0].key, '?', bbs->request.headers[0].keylen);
+	char *query_string = memchr(bbs->request.url, '?', bbs->request.url_len);
 	if (query_string) {
-		if (add_uwsgi_item(bbs, "PATH_INFO", 9, bbs->request.headers[0].key, query_string-bbs->request.headers[0].key, 0)) return -1;
-		if (add_uwsgi_item(bbs, "QUERY_STRING", 12, query_string+1, (bbs->request.headers[0].key+bbs->request.headers[0].keylen)-(query_string+1), 0)) return -1;
+		if (add_uwsgi_item(bbs, "PATH_INFO", 9, bbs->request.url, query_string-bbs->request.url, 0)) return -1;
+		if (add_uwsgi_item(bbs, "QUERY_STRING", 12, query_string+1, (bbs->request.url+bbs->request.url_len)-(query_string+1), 0)) return -1;
 	}
 	else {
-		if (add_uwsgi_item(bbs, "PATH_INFO", 9, bbs->request.headers[0].key, bbs->request.headers[0].keylen, 0)) return -1;
+		if (add_uwsgi_item(bbs, "PATH_INFO", 9, bbs->request.url, bbs->request.url_len, 0)) return -1;
 		if (add_uwsgi_item(bbs, "QUERY_STRING", 12, "", 0, 0)) return -1;
 	}
 
@@ -116,7 +116,7 @@ int bb_uwsgi(struct bb_session *bbs) {
 	
 	// add HTTP_ headers
 	off_t i;	
-	for(i=1;i<=bbs->request.header_pos;i++) {
+	for(i=0;i<bbs->request.headers_count;i++) {
                 if (add_uwsgi_item(bbs, bbs->request.headers[i].key, bbs->request.headers[i].keylen, bbs->request.headers[i].value, bbs->request.headers[i].vallen, 1))
 			return -1;
         }

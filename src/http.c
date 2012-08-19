@@ -1,5 +1,6 @@
 #include "../blastbeat.h"
 
+extern struct blastbeat_server blastbeat;
 http_parser_settings bb_http_parser_settings;
 
 int bb_http_func(struct bb_connection *bbc, char *buf, size_t len) {
@@ -40,7 +41,6 @@ int bb_http_send_body(struct bb_session *bbs, char *buf, size_t len) {
 int bb_http_cache_send_headers(struct bb_session *bbs, struct bb_cache_item *bbci) {
 	char *first_line = bb_alloc(bbci->http_first_line_len+2);
 	if (!first_line) {
-		bb_error("malloc()");
 		return -1;
 	}
 	memcpy(first_line, bbci->http_first_line, bbci->http_first_line_len);
@@ -54,7 +54,6 @@ int bb_http_cache_send_headers(struct bb_session *bbs, struct bb_cache_item *bbc
 	for(i=0;i<bbci->headers_count;i++) {
 		char *header = bb_alloc(bbci->headers[i].keylen+2+bbci->headers[i].vallen+2);
 		if (!header) {
-			bb_error("malloc()");
 			return -1;
 		}
 		memcpy(header, bbci->headers[i].key, bbci->headers[i].keylen);
@@ -94,7 +93,7 @@ ssize_t bb_http_write(struct bb_connection *bbc, char *buf, size_t len) {
 
 struct bb_http_header *bb_http_req_header(struct bb_session *bbs, char *key, size_t keylen) {
         off_t i;
-        for(i=1;i<=bbs->request.header_pos;i++) {
+        for(i=0;i<bbs->request.headers_count;i++) {
                 if (!bb_stricmp(key, keylen, bbs->request.headers[i].key, bbs->request.headers[i].keylen)) {
                         return &bbs->request.headers[i];
                 }
@@ -115,7 +114,6 @@ int bb_manage_chunk(struct bb_session *bbs, char *buf, size_t len) {
 
 	char *chunk = bb_alloc(MAX_CHUNK_STORAGE);
         if (!chunk) {
-        	bb_error("unable to allocate memory for chunked response: malloc()");
 		return -1;
         }
         int chunk_len = snprintf(chunk, MAX_CHUNK_STORAGE, "%X\r\n", (unsigned int) len);
@@ -136,15 +134,18 @@ int bb_manage_chunk(struct bb_session *bbs, char *buf, size_t len) {
 
 static int url_cb(http_parser *parser, const char *buf, size_t len) {
         struct bb_session *bbs = (struct bb_session *) parser->data;
-        if (!bbs->request.headers[0].key) {
-                bbs->request.headers[0].key = bb_alloc(len);
-                memcpy(bbs->request.headers[0].key, buf, len);
-                bbs->request.headers[0].keylen = len;
+        if (!bbs->request.url) {
+                bbs->request.url = bb_alloc(len);
+		if (!bbs->request.url) {
+			return -1;
+		}
+                memcpy(bbs->request.url, buf, len);
+                bbs->request.url_len = len;
         }
         else {
-                bbs->request.headers[0].key = bb_realloc(bbs->request.headers[0].key, bbs->request.headers[0].keylen, len);
-                memcpy(bbs->request.headers[0].key + bbs->request.headers[0].keylen + len, buf, len);
-                bbs->request.headers[0].keylen += len;
+                bbs->request.url = bb_realloc(bbs->request.url, bbs->request.url_len, len);
+                memcpy(bbs->request.url + bbs->request.url_len, buf, len);
+                bbs->request.url_len += len;
         }
         return 0;
 }
@@ -160,46 +161,95 @@ int null_b_cb(http_parser *parser, const char *buf, size_t len) {
 
 static int header_field_cb(http_parser *parser, const char *buf, size_t len) {
         struct bb_session *bbs = (struct bb_session *) parser->data;
-        if (bbs->request.last_was_value) {
-                bbs->request.header_pos++;
-                bbs->request.headers[bbs->request.header_pos].key = bb_alloc(len);
-                memcpy(bbs->request.headers[bbs->request.header_pos].key, buf, len);
-                bbs->request.headers[bbs->request.header_pos].keylen = len;
+	struct bb_request *bbr = &bbs->request;
+
+        if (bbr->last_was_value) {
+		if (bbr->headers_count + 1 > blastbeat.max_headers) return -1;
+		if (bbr->headers_len + 2 + len > MAX_HEADERS_SIZE) return -1;	
+                struct bb_http_header *bbhh = bb_realloc(bbr->headers, sizeof(struct bb_http_header)*bbr->headers_count, sizeof(struct bb_http_header));
+                if (!bbhh) {
+                        return -1;
+                }
+                bbr->headers = bbhh;
+                int pos = bbr->headers_count;
+                bbr->headers_count++;
+
+		bbr->headers[pos].value = NULL;
+		bbr->headers[pos].vallen = 0;
+		bbr->headers[pos].keylen = 0;
+
+                bbr->headers[pos].key = bb_alloc(len);
+                if (!bbr->headers[pos].key) {
+                        return -1;
+                }
+                memcpy(bbr->headers[pos].key, buf, len);
+                bbr->headers[pos].keylen = len;
+		bbr->headers_len += 2+len;
         }
         else {
-                bbs->request.headers[bbs->request.header_pos].key = bb_realloc(bbs->request.headers[bbs->request.header_pos].key, bbs->request.headers[bbs->request.header_pos].keylen, len);
-                memcpy(bbs->request.headers[bbs->request.header_pos].key + bbs->request.headers[bbs->request.header_pos].keylen, buf, len);
-                bbs->request.headers[bbs->request.header_pos].keylen += len;
+		if (bbr->headers_len + len > MAX_HEADERS_SIZE) return -1;
+                int pos = bbr->headers_count-1;
+                char *tmp_buf = bb_realloc(bbr->headers[pos].key, bbr->headers[pos].keylen, len);
+                if (!tmp_buf) {
+                        return -1;
+                }
+                bbr->headers[pos].key = tmp_buf;
+                memcpy(bbr->headers[pos].key + bbr->headers[pos].keylen, buf, len);
+                bbr->headers[pos].keylen += len;
+		bbr->headers_len += len;
         }
-        bbs->request.last_was_value = 0;
+        bbr->last_was_value = 0;
         return 0;
 }
 
 static int header_value_cb(http_parser *parser, const char *buf, size_t len) {
-        struct bb_session *bbs = (struct bb_session *) parser->data;
-        if (!bbs->request.last_was_value) {
-                bbs->request.headers[bbs->request.header_pos].value = bb_alloc(len);
-                memcpy(bbs->request.headers[bbs->request.header_pos].value, buf, len);
-                bbs->request.headers[bbs->request.header_pos].vallen = len;
+	struct bb_session *bbs = (struct bb_session *) parser->data;
+        struct bb_request *bbr = &bbs->request;
+
+        int pos = bbr->headers_count-1;
+        if (!bbr->last_was_value) {
+		if (bbr->headers_len + 2 + len > MAX_HEADERS_SIZE) return -1;
+                bbr->headers[pos].value = bb_alloc(len);
+                if (!bbr->headers[pos].value) {
+                        return -1;
+                }
+                memcpy(bbr->headers[pos].value, buf, len);
+                bbr->headers[pos].vallen = len;
+                bbr->headers_len+= 2+len;
         }
         else {
-                bbs->request.headers[bbs->request.header_pos].value = bb_realloc(bbs->request.headers[bbs->request.header_pos].value, bbs->request.headers[bbs->request.header_pos].vallen, len);
-                memcpy(bbs->request.headers[bbs->request.header_pos].value + bbs->request.headers[bbs->request.header_pos].vallen, buf, len);
-                bbs->request.headers[bbs->request.header_pos].vallen += len;
+		if (bbr->headers_len + len > MAX_HEADERS_SIZE) return -1;
+                char *tmp_buf = bb_realloc(bbr->headers[pos].value, bbr->headers[pos].vallen, len);
+                if (!tmp_buf) {
+                        return -1;
+                }
+                bbr->headers[pos].value = tmp_buf;
+                memcpy(bbr->headers[pos].value + bbr->headers[pos].vallen, buf, len);
+                bbr->headers[pos].vallen += len;
+                bbr->headers_len+=len;
         }
-        bbs->request.last_was_value = 1;
+        bbr->last_was_value = 1;
         return 0;
 }
+
 
 static int header_ptr_field_cb(http_parser *parser, const char *buf, size_t len) {
         struct bb_session *bbs = (struct bb_session *) parser->data;
         if (bbs->response.last_was_value) {
-                bbs->response.header_pos++;
-                bbs->response.headers[bbs->response.header_pos].key = (char *) buf;
-                bbs->response.headers[bbs->response.header_pos].keylen = len;
+		if (bbs->response.headers_count + 1 > blastbeat.max_headers) return -1;
+		struct bb_http_header *bbhh = bb_realloc(bbs->response.headers, sizeof(struct bb_http_header)*bbs->response.headers_count, sizeof(struct bb_http_header));
+                if (!bbhh) {
+                        return -1;
+                }
+                bbs->response.headers = bbhh;
+                bbs->response.headers[bbs->response.headers_count].key = (char *) buf;
+                bbs->response.headers[bbs->response.headers_count].keylen = len;
+		bbs->response.headers[bbs->response.headers_count].value = NULL;
+		bbs->response.headers[bbs->response.headers_count].vallen = 0;
+                bbs->response.headers_count++;
         }
         else {
-                bbs->response.headers[bbs->response.header_pos].keylen += len;
+                bbs->response.headers[bbs->response.headers_count-1].keylen += len;
         }
         bbs->response.last_was_value = 0;
         return 0;
@@ -208,11 +258,11 @@ static int header_ptr_field_cb(http_parser *parser, const char *buf, size_t len)
 static int header_ptr_value_cb(http_parser *parser, const char *buf, size_t len) {
         struct bb_session *bbs = (struct bb_session *) parser->data;
         if (!bbs->response.last_was_value) {
-                bbs->response.headers[bbs->response.header_pos].value = (char *) buf;
-                bbs->response.headers[bbs->response.header_pos].vallen = len;
+                bbs->response.headers[bbs->response.headers_count-1].value = (char *) buf;
+                bbs->response.headers[bbs->response.headers_count-1].vallen = len;
         }
         else {
-                bbs->response.headers[bbs->response.header_pos].vallen += len;
+                bbs->response.headers[bbs->response.headers_count-1].vallen += len;
         }
         bbs->response.last_was_value = 1;
         return 0;
@@ -260,9 +310,9 @@ static int bb_session_headers_complete(http_parser *parser) {
 
 	// check for mountpoint...
 	// check for socket.io
-	if (!bb_startswith(bbs->request.headers[0].key, bbs->request.headers[0].keylen, "/socket.io/1/", 13)) {
+	if (!bb_startswith(bbs->request.url, bbs->request.url_len, "/socket.io/1/", 13)) {
 		char *method = (char *) http_method_str(bbs->request.parser.method);
-		if (bb_manage_socketio(bbs,  method, strlen(method), bbs->request.headers[0].key, bbs->request.headers[0].keylen)) {
+		if (bb_manage_socketio(bbs,  method, strlen(method), bbs->request.url, bbs->request.url_len)) {
 			return -1;
 		}
 		goto msg;
@@ -287,7 +337,7 @@ static int bb_session_headers_complete(http_parser *parser) {
 
 	// ok now check if the virtualhost as a cache store associated
 	if (bbs->vhost->cache_size > 0 && bbs->request.parser.method == HTTP_GET) {
-		int ret = bb_manage_cache(bbs, bbs->request.headers[0].key, bbs->request.headers[0].keylen);
+		int ret = bb_manage_cache(bbs, bbs->request.url, bbs->request.url_len);
 		if (ret == BLASTBEAT_CACHE_MISS) goto msg;
 		if (ret == BLASTBEAT_CACHE_FOUND) return 0;
 		if (ret == BLASTBEAT_CACHE_ERROR) return -1;
