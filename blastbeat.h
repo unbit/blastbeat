@@ -246,6 +246,9 @@ struct bb_request {
 	struct bb_http_header headers[MAX_HEADERS];
 	char http_major;
 	char http_minor;
+
+	int can_chunk;
+
 	// websocket parser
 	char *websocket_message_queue;
         uint64_t websocket_message_queue_len;

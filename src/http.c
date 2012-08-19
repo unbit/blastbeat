@@ -105,6 +105,14 @@ struct bb_http_header *bb_http_req_header(struct bb_session *bbs, char *key, siz
 
 
 int bb_manage_chunk(struct bb_session *bbs, char *buf, size_t len) {
+
+	// fallback to normal body if chunked encoding is not allowed
+
+	if (!bbs->request.can_chunk) {
+		if (bb_wq_push_copy(bbs, buf, len, BB_WQ_FREE)) return -1;
+		return 0;
+	}
+
 	char *chunk = bb_alloc(MAX_CHUNK_STORAGE);
         if (!chunk) {
         	bb_error("unable to allocate memory for chunked response: malloc()");
@@ -245,6 +253,10 @@ static int bb_session_headers_complete(http_parser *parser) {
                 	return -1;
         	}
         }
+
+	if (parser->http_major == 1 && parser->http_minor == 1) {
+		bbs->request.can_chunk = 1;
+	}
 
 	// check for mountpoint...
 	// check for socket.io
