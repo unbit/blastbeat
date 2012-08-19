@@ -487,6 +487,72 @@ socket.send('cache', zmq.SNDMORE)
 socket.send('/foobar001\r\n')
 ```
 
+## Bandwidth
+
+You can limit the amount of bandwidth used by each virtualhost
+
+```ini
+[blastbeat]
+bind = 0.0.0.0:80
+zmq = tcp://192.168.173.5:5000
+
+[blastbeat:unbit.it]
+; limit to 100 kbit/s
+bandwidth = 100
+
+[blastbeat:uwsgi.it]
+; limit to 1MBit/s
+bandwidth = 1000
+```
+
+The algorithm used is the 'token bucket' with a resolution of 30ms.
+
+Albeit blastbeat is not intended for big-files serving, you can use it as a streaming (audio/video) server
+so limiting bandwidth could be a good solution for QoS
+
+Take in account limiting bandwidth could mean increasing a lot (in terms of memory) the writequeue required
+for non blocking writes. By default you can enqueue upto 8Megabytes of datas, you can increase (or decrease) that value
+with the 'writequeue-buffer' option
+
+```ini
+[blastbeat]
+bind = 0.0.0.0:80
+zmq = tcp://192.168.173.5:5000
+; 10 mbytes per-connection
+writequeue-buffer = 10485760
+```
+
+## Memory and Security
+
+New web technologies introduce a new set of security problems, most of them are related to resource usage.
+
+You can limit the total amount of memory used by BlastBeat with the 'memory' option
+
+```ini
+[blastbeat]
+bind = 0.0.0.0:80
+zmq = tcp://192.168.173.5:5000
+; do not use more than 2GB of memory
+memory = 2000
+```
+
+Or you can limit the number of sessions, both per-server and per-virtualhost
+
+```ini
+[blastbeat]
+bind = 0.0.0.0:80
+zmq = tcp://192.168.173.5:5000
+; do not use more than 2GB of memory
+memory = 2000
+; max 100 sessions
+sessions = 100
+
+[blastbeat:unbit.it]
+; max 10 session for this virtualhost
+sessions = 10
+```
+
+
 ## Ruby EventMachine example
 
 ```ruby
@@ -577,8 +643,6 @@ end
 * uWSGI Emperor support
 
 * graceful reloads (or dynamic config ?)
-
-* Some form of timeout management
 
 * Multiple zmq router support
 
