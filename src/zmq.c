@@ -385,7 +385,8 @@ next:
 
 
 
-static void bb_zmq_run() {
+void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
+
         uint32_t zmq_events = 0;
         size_t opt_len = sizeof(uint32_t);
 
@@ -403,10 +404,6 @@ static void bb_zmq_run() {
 	}
 }
 
-void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
-	bb_zmq_run();
-}
-
 void bb_zmq_check_cb(struct ev_loop *loop, struct ev_prepare *w, int revents) {
-	bb_zmq_run();
+	ev_feed_event(blastbeat.loop, &blastbeat.event_zmq, EV_READ);
 }
