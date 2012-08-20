@@ -69,12 +69,10 @@ void bb_raw_zmq_send_msg(struct bb_session *bbs, char *identity, size_t identity
         zmq_send(blastbeat.router, &z_i, ZMQ_SNDMORE);
         zmq_send(blastbeat.router, &z_sid, ZMQ_SNDMORE);
         zmq_send(blastbeat.router, &z_t, ZMQ_SNDMORE);
-        for(;;) {
-                int ret = zmq_send(blastbeat.router, &z_body, ZMQ_NOBLOCK);
-                if (!ret) break;
-                if (errno == EAGAIN) continue;
+
+	// router/dealers should never block...
+        if (zmq_send(blastbeat.router, &z_body, ZMQ_NOBLOCK)) {
                 bb_error("zmq_send()");
-                break;
         }
 
         zmq_msg_close(&z_i);

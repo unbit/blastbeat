@@ -74,6 +74,7 @@ struct bb_dealer {
 	size_t len;
         ev_tstamp last_seen;
 	int status;
+	int unauthorized;
 	int spawn_sent;
 	uint64_t load;
         struct bb_dealer *next;

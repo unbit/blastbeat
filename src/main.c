@@ -178,7 +178,8 @@ int bb_set_dealer(struct bb_session *bbs, char *name, size_t len) {
 	struct bb_vhost_dealer *bbvd = vhost->dealers;
 	struct bb_dealer *best_dealer = NULL;
 	while(bbvd) {
-		if (bbvd->dealer->status == BLASTBEAT_DEALER_OFF) goto next;
+		if (bbvd->dealer->status != BLASTBEAT_DEALER_AVAILABLE) goto next;
+		if (bbvd->dealer->unauthorized) goto next;
 		if (!best_dealer) {
 			best_dealer = bbvd->dealer;
 		}
