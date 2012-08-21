@@ -777,7 +777,7 @@ int main(int argc, char *argv[]) {
 	// report config, bind sockets and assign ssl keys/certificates
 	struct bb_acceptor *acceptor = blastbeat.acceptors;
 	while(acceptor) {
-		fprintf(stdout, "\n[acceptor %s]\n", acceptor->name);
+		fprintf(stdout, "\n[acceptor %s priority: %llu]\n", acceptor->name, (unsigned long long) acceptor->priority);
 		bb_acceptor_bind(acceptor);
 		struct bb_acceptor_vhost *vhost = acceptor->vhosts;
 		while(vhost) {

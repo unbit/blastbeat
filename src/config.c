@@ -96,6 +96,14 @@ static struct bb_acceptor *bb_get_acceptor(char *addr, int shared, void (*func)(
 	union bb_addr bba;
 	socklen_t addr_len;
 	memset(&bba, 0, sizeof(bba));
+ 
+	uint64_t priority = 1;
+        char *space = strchr(addr, ' ');
+        if (space) {
+        	*space = 0;
+                priority = strtoll(space+1, NULL, 10);
+        }
+
 
 	char *colon = strrchr(addr, ':');
         if (!colon) {
@@ -144,6 +152,7 @@ check:
 	memset(acceptor, 0, sizeof(struct bb_acceptor));
 	acceptor->shared = shared;
 	acceptor->name = addr;
+	acceptor->priority = priority;
 	acceptor->port_str = colon;
 	acceptor->read = bb_http_read;
 	acceptor->write = bb_http_write;

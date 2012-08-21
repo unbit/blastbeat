@@ -488,6 +488,10 @@ struct bb_acceptor {
 	int ctx_configured;
 	ssize_t (*read)(struct bb_connection *, char *, size_t);
 	ssize_t (*write)(struct bb_connection *, char *, size_t);
+
+	// priority used by clustering
+	uint64_t priority;
+
 	// list of mapped virtualhosts
 	struct bb_acceptor_vhost *vhosts;
 	struct bb_acceptor *next;
