@@ -87,9 +87,9 @@ static int bb_spdy_pass_body(struct bb_connection *bbc) {
 	return -1;
 found:
 	if (!bbs->dealer) return -1;	
-	bb_zmq_send_msg(bbs, bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "body", 4, bbc->spdy_body_buf, bbc->spdy_length);
+	bb_zmq_send_msg(bbs->dealer, bbs, (char *) &bbs->uuid_part1, BB_UUID_LEN, "body", 4, bbc->spdy_body_buf, bbc->spdy_length);
 	if (bbc->spdy_flags == 0x01) {
-		bb_zmq_send_msg(bbs, bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "body", 4, "", 0);
+		bb_zmq_send_msg(bbs->dealer, bbs, (char *) &bbs->uuid_part1, BB_UUID_LEN, "body", 4, "", 0);
 	}
 	return 0;
 
@@ -645,7 +645,7 @@ static int bb_manage_spdy_msg(struct bb_connection *bbc) {
 			// check for dealer as the host: header could be missing !!!
 			if (!bbs->dealer) return -1;
 			if (!bbs->request.no_uwsgi)
-				bb_zmq_send_msg(bbs, bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "uwsgi", 5, bbs->request.uwsgi_buf, bbs->request.uwsgi_pos);
+				bb_zmq_send_msg(bbs->dealer, bbs, (char *) &bbs->uuid_part1, BB_UUID_LEN, "uwsgi", 5, bbs->request.uwsgi_buf, bbs->request.uwsgi_pos);
 			break;
 		// RST
 		case 0x03:

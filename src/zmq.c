@@ -49,29 +49,29 @@ static char *bb_get_route(char *buf, size_t len, size_t *rlen) {
 	return NULL;
 }
 
-void bb_raw_zmq_send_msg(struct bb_session *bbs, char *identity, size_t identity_len, char *sid, size_t sid_len, char *t, size_t t_len, char *body, size_t body_len) {
+void bb_raw_zmq_send_msg(struct bb_dealer *bbd, struct bb_session *bbs, char *sid, size_t sid_len, char *t, size_t t_len, char *body, size_t body_len) {
 
 	if (bbs && bb_check_for_pipe(bbs, t, t_len, body, body_len)) return;
 
         zmq_msg_t z_i,z_sid,z_t, z_body;
 
-        zmq_msg_init_size(&z_i, identity_len);
+        zmq_msg_init_size(&z_i, bbd->len);
         zmq_msg_init_size(&z_sid, sid_len);
         zmq_msg_init_size(&z_t, t_len);
         zmq_msg_init_size(&z_body, body_len);
 
-        memcpy(zmq_msg_data(&z_i), identity, identity_len);
+        memcpy(zmq_msg_data(&z_i), bbd->identity, bbd->len);
         memcpy(zmq_msg_data(&z_sid), sid, sid_len);
         memcpy(zmq_msg_data(&z_t), t, t_len);
         memcpy(zmq_msg_data(&z_body), body, body_len);
 
 
-        zmq_send(blastbeat.router, &z_i, ZMQ_SNDMORE);
-        zmq_send(blastbeat.router, &z_sid, ZMQ_SNDMORE);
-        zmq_send(blastbeat.router, &z_t, ZMQ_SNDMORE);
+        zmq_send(bbd->router->router, &z_i, ZMQ_SNDMORE);
+        zmq_send(bbd->router->router, &z_sid, ZMQ_SNDMORE);
+        zmq_send(bbd->router->router, &z_t, ZMQ_SNDMORE);
 
 	// router/dealers should never block...
-        if (zmq_send(blastbeat.router, &z_body, ZMQ_NOBLOCK)) {
+        if (zmq_send(bbd->router->router, &z_body, ZMQ_NOBLOCK)) {
                 bb_error("zmq_send()");
         }
 
@@ -82,10 +82,10 @@ void bb_raw_zmq_send_msg(struct bb_session *bbs, char *identity, size_t identity
 
 }
 
-void bb_zmq_send_msg(struct bb_session *bbs, char *identity, size_t identity_len, char *sid, size_t sid_len, char *t, size_t t_len, char *body, size_t body_len) {
+void bb_zmq_send_msg(struct bb_dealer *bbd, struct bb_session *bbs, char *sid, size_t sid_len, char *t, size_t t_len, char *body, size_t body_len) {
 
-        ev_feed_event(blastbeat.loop, &blastbeat.event_zmq, EV_READ);
-        bb_raw_zmq_send_msg(bbs, identity, identity_len, sid, sid_len, t, t_len, body, body_len);
+        ev_feed_event(blastbeat.loop, &bbd->router->zmq_io.event, EV_READ);
+        bb_raw_zmq_send_msg(bbd, bbs, sid, sid_len, t, t_len, body, body_len);
 }
 
 
@@ -98,11 +98,12 @@ static void update_dealer(struct bb_dealer *bbd, ev_tstamp now) {
 	}	
 }
 
-static void manage_ping(char *identity, size_t len) {
+static void manage_ping(struct bb_router *bbr, char *identity, size_t len) {
 	struct bb_dealer *bbd = blastbeat.dealers;
 	ev_tstamp now = bb_now;
 	while(bbd) {
-		if (!bb_strcmp(identity, len, bbd->identity, bbd->len)) {
+		// check for router and identity
+		if (bbd->router == bbr && !bb_strcmp(identity, len, bbd->identity, bbd->len)) {
 			update_dealer(bbd, now);
 			return;
 		}
@@ -110,7 +111,7 @@ static void manage_ping(char *identity, size_t len) {
 	}
 }
 
-static void bb_zmq_manage_messages() {
+static void bb_zmq_manage_messages(struct bb_router *bbr) {
 
                         uint64_t more = 0;
                         size_t more_size = sizeof(more);
@@ -122,8 +123,8 @@ static void bb_zmq_manage_messages() {
 			zmq_msg_init(&msg[3]);	
 
                         for(i=0;i<4;i++) {
-                                zmq_recv(blastbeat.router, &msg[i], ZMQ_NOBLOCK);
-                                if (zmq_getsockopt(blastbeat.router, ZMQ_RCVMORE, &more, &more_size)) {
+                                zmq_recv(bbr->router, &msg[i], ZMQ_NOBLOCK);
+                                if (zmq_getsockopt(bbr->router, ZMQ_RCVMORE, &more, &more_size)) {
                                         perror("zmq_getsockopt()");
                                         break;
                                 }
@@ -137,7 +138,7 @@ static void bb_zmq_manage_messages() {
 
                         // manage "pong" messages
 			if (!bb_strcmp(zmq_msg_data(&msg[2]), zmq_msg_size(&msg[2]), "pong", 4)) {
-				manage_ping(zmq_msg_data(&msg[0]), zmq_msg_size(&msg[0]));
+				manage_ping(bbr, zmq_msg_data(&msg[0]), zmq_msg_size(&msg[0]));
 				goto next;
 			}
 
@@ -148,6 +149,9 @@ static void bb_zmq_manage_messages() {
                         struct bb_session *bbs = bb_sht_get(zmq_msg_data(&msg[1]));
                         if (!bbs) goto next;
 			if (!bbs->dealer) goto next;
+			// check router/dealer pairing
+			if (bbs->dealer->router != bbr) goto next;
+			// check identity
 			if (bb_strcmp(zmq_msg_data(&msg[0]), zmq_msg_size(&msg[0]), bbs->dealer->identity, bbs->dealer->len)) goto next;
 			
 			// update dealer activity
@@ -234,7 +238,7 @@ static void bb_zmq_manage_messages() {
                                         bb_connection_close(bbs->connection);
                                         goto next;
                                 }
-                                bb_zmq_send_msg(bbs, bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "uwsgi", 5, bbs->request.uwsgi_buf, bbs->request.uwsgi_pos);
+                                bb_zmq_send_msg(bbs->dealer, bbs, (char *) &bbs->uuid_part1, BB_UUID_LEN, "uwsgi", 5, bbs->request.uwsgi_buf, bbs->request.uwsgi_pos);
                                 bbs->hops++;
                                 goto next;
                         }
@@ -249,15 +253,15 @@ static void bb_zmq_manage_messages() {
 						struct bb_session *bbs_dest = bb_sht_get(route+1);
 						if (!bbs_dest) goto next;
 						if (!bbs_dest->dealer) goto next;
-						bb_zmq_send_msg(bbs_dest, bbs_dest->dealer->identity, bbs_dest->dealer->len, route+1, BB_UUID_LEN, "msg", 3, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]));
+						bb_zmq_send_msg(bbs_dest->dealer, bbs_dest, route+1, BB_UUID_LEN, "msg", 3, zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]));
 					}
 				}
 				else {
 					foreach_session_in_group
-						bb_zmq_send_msg(bbgs->session, bbgs->session->dealer->identity, bbgs->session->dealer->len,
+						bb_zmq_send_msg(bbgs->session->dealer, bbgs->session,
 							(char *) &bbgs->session->uuid_part1, BB_UUID_LEN, "msg", 3, zmq_msg_data(&msg[3]), msg_len);
                                         end_foreach
-					bb_zmq_send_msg(bbs, bbs->dealer->identity, bbs->dealer->len,
+					bb_zmq_send_msg(bbs->dealer, bbs,
                                         	(char *) &bbs->uuid_part1, BB_UUID_LEN, "msg", 3, zmq_msg_data(&msg[3]), msg_len);
 				}
 				goto next;
@@ -388,23 +392,26 @@ next:
 
 void bb_zmq_receiver(struct ev_loop *loop, struct ev_io *w, int revents) {
 
+	struct bb_router_io *bbr_io = (struct bb_router_io *) w;
+
         uint32_t zmq_events = 0;
         size_t opt_len = sizeof(uint32_t);
 
-	ev_prepare_stop(blastbeat.loop, &blastbeat.zmq_check);
+	ev_prepare_stop(blastbeat.loop, &bbr_io->router->zmq_check.prepare);
 
-        int ret = zmq_getsockopt(blastbeat.router, ZMQ_EVENTS, &zmq_events, &opt_len);
+        int ret = zmq_getsockopt(bbr_io->router->router, ZMQ_EVENTS, &zmq_events, &opt_len);
         if (ret < 0) {
         	perror("zmq_getsockopt()");
 		return;
         }
 
         if (zmq_events & ZMQ_POLLIN) {
-		bb_zmq_manage_messages();
-		ev_prepare_start(blastbeat.loop, &blastbeat.zmq_check);
+		bb_zmq_manage_messages(bbr_io->router);
+		ev_prepare_start(blastbeat.loop, &bbr_io->router->zmq_check.prepare);
 	}
 }
 
 void bb_zmq_check_cb(struct ev_loop *loop, struct ev_prepare *w, int revents) {
-	ev_feed_event(blastbeat.loop, &blastbeat.event_zmq, EV_READ);
+	struct bb_router_prepare *bbr_prepare = (struct bb_router_prepare *) w;
+	ev_feed_event(blastbeat.loop, &bbr_prepare->router->zmq_io.event, EV_READ);
 }

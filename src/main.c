@@ -56,7 +56,7 @@ void bb_session_close(struct bb_session *bbs) {
 
                 // if linked to a dealer (and not in stealth mode), send a 'end' message
                 if (bbs->dealer && !bbs->stealth) {
-                        bb_zmq_send_msg(bbs, bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "end", 3, "", 0);
+                        bb_zmq_send_msg(bbs->dealer, bbs, (char *) &bbs->uuid_part1, BB_UUID_LEN, "end", 3, "", 0);
                 }
         }
 
@@ -446,7 +446,12 @@ static void pinger_cb(struct ev_loop *loop, struct ev_timer *w, int revents) {
 
 	struct bb_dealer *bbd = blastbeat.dealers;
 	// get events before starting a potentially long write session
-	ev_feed_event(blastbeat.loop, &blastbeat.event_zmq, EV_READ);
+	struct bb_router *bbr = blastbeat.routers;
+	while(bbr) {
+		ev_feed_event(blastbeat.loop, &bbr->zmq_io.event, EV_READ);
+		bbr = bbr->next;
+	}
+
 	ev_tstamp now = bb_now;
 	while(bbd) {
 		ev_tstamp delta = now - bbd->last_seen;
@@ -455,10 +460,10 @@ static void pinger_cb(struct ev_loop *loop, struct ev_timer *w, int revents) {
 				bbd->status = BLASTBEAT_DEALER_OFF;
 				fprintf(stderr,"node \"%s\" is OFF\n", bbd->identity);
 			}
-			bb_raw_zmq_send_msg(NULL, bbd->identity, bbd->len, "", 0, "ping", 4, "", 0);
+			bb_raw_zmq_send_msg(bbd, NULL, "", 0, "ping", 4, "", 0);
 		}
 		if (!bbd->spawn_sent) {
-			bb_raw_zmq_send_msg(NULL, bbd->identity, bbd->len, "", 0, "spawn", 5, "", 0);
+			bb_raw_zmq_send_msg(bbd, NULL, "", 0, "spawn", 5, "", 0);
 			bbd->spawn_sent = 1;
 		}
 		bbd = bbd->next;
@@ -728,7 +733,7 @@ int main(int argc, char *argv[]) {
 		exit(1);
 	}
 
-	if (!blastbeat.zmq) {
+	if (!blastbeat.routers) {
 		fprintf(stderr, "config error: please specify at least one 'zmq' directive\n");
 		exit(1);
 	}
@@ -785,23 +790,53 @@ int main(int argc, char *argv[]) {
 
 	void *context = zmq_init (1);
 	
-	blastbeat.router = zmq_socket(context, ZMQ_ROUTER);
+	struct bb_router *bbr = blastbeat.routers;
+	while(bbr) {
+		bbr->router = zmq_socket(context, ZMQ_ROUTER);
 
-	if (zmq_bind(blastbeat.router, blastbeat.zmq)) {
-		bb_error_exit("unable to bind to zmq socket: zmq_bind()");
-	}
+		if (zmq_bind(bbr->router, bbr->zmq)) {
+			bb_error_exit("unable to bind to zmq socket: zmq_bind()");
+		}
 
-	size_t opt_len = sizeof(int);
-	if (zmq_getsockopt(blastbeat.router, ZMQ_FD, &blastbeat.zmq_fd, &opt_len)) {
-		bb_error_exit("unable to configure zmq socket: zmq_getsockopt()");
+		size_t opt_len = sizeof(int);
+		if (zmq_getsockopt(bbr->router, ZMQ_FD, &bbr->zmq_fd, &opt_len)) {
+			bb_error_exit("unable to configure zmq socket: zmq_getsockopt()");
+		}
+
+		ev_io_init(&bbr->zmq_io.event, bb_zmq_receiver, bbr->zmq_fd, EV_READ);
+		bbr->zmq_io.router = bbr;
+		ev_io_start(blastbeat.loop, &bbr->zmq_io.event);
+
+		ev_prepare_init(&bbr->zmq_check.prepare, bb_zmq_check_cb);
+		bbr->zmq_check.router = bbr;
+
+		// here we map the router to the dealers
+		struct bb_virtualhost *vhost = bbr->vhost;
+		if (vhost) {
+			struct bb_vhost_dealer *bbvd = vhost->dealers;
+			while(bbvd) {
+				bbvd->dealer->router = bbr;	
+				bbvd = bbvd->next;
+			}
+		}
+		else {
+			vhost = blastbeat.vhosts;
+			while(vhost) {
+				struct bb_vhost_dealer *bbvd = vhost->dealers;
+				while(bbvd) {
+					if (!bbvd->dealer->router) {
+						bbvd->dealer->router = bbr;
+					}
+					bbvd = bbvd->next;
+				}
+				vhost = vhost->next;
+			}
+		}
+
+		bbr = bbr->next;
 	}
 
 	drop_privileges();
-
-	ev_io_init(&blastbeat.event_zmq, bb_zmq_receiver, blastbeat.zmq_fd, EV_READ);
-	ev_io_start(blastbeat.loop, &blastbeat.event_zmq);
-
-	ev_prepare_init(&blastbeat.zmq_check, bb_zmq_check_cb);
 
 	// the first ping is after 1 second
 	ev_timer_init(&blastbeat.pinger, pinger_cb, 1.0, blastbeat.ping_freq);

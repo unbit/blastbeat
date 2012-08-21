@@ -67,6 +67,7 @@
 
 struct bb_virtualhost;
 struct bb_session;
+struct bb_router;
 
 // a dealer is a blackend node connecting to blastbeat
 struct bb_dealer {
@@ -77,6 +78,9 @@ struct bb_dealer {
 	int unauthorized;
 	int spawn_sent;
 	uint64_t load;
+
+	struct bb_router *router;
+
         struct bb_dealer *next;
 };
 
@@ -509,11 +513,30 @@ struct bb_hostname {
 	struct bb_hostname *next;
 };
 
+struct bb_router_io {
+	ev_io event;
+	struct bb_router *router;
+};
+
+struct bb_router_prepare {
+	ev_prepare prepare;
+	struct bb_router *router;
+};
+
+struct bb_router {
+	char *zmq;
+	struct bb_virtualhost *vhost;
+	void *router;
+	int zmq_fd;
+	struct bb_router_io zmq_io;
+	struct bb_router_prepare zmq_check;
+	struct bb_router *next;
+};
+
 // the main server structure
 struct blastbeat_server {
 	struct bb_acceptor *acceptors;
 	struct bb_virtualhost *vhosts;
-	char *zmq;
 
 	float ping_freq;
 	float stats_freq;
@@ -535,8 +558,6 @@ struct blastbeat_server {
 	uint64_t startup_memory;
 	uint64_t cache_memory;
 
-	void *router;
-	int zmq_fd;
 	struct ev_loop *loop;
 
 	uint64_t max_fd;
@@ -554,12 +575,10 @@ struct blastbeat_server {
 	struct bb_hostname *hnht[BLASTBEAT_HOSTNAME_HTSIZE];
 
 	struct bb_dealer *dealers;
+	struct bb_router *routers;
 
-	ev_io event_zmq;
 	ev_timer pinger;
 	ev_timer stats;
-
-	ev_prepare zmq_check;
 
 };
 
@@ -594,8 +613,8 @@ struct bb_session *bb_session_new(struct bb_connection *);
 void bb_connection_close(struct bb_connection *);
 void bb_session_close(struct bb_session *);
 
-void bb_raw_zmq_send_msg(struct bb_session *, char *, size_t, char *, size_t, char *, size_t, char *, size_t);
-void bb_zmq_send_msg(struct bb_session *, char *, size_t, char *, size_t, char *, size_t, char *, size_t);
+void bb_raw_zmq_send_msg(struct bb_dealer *, struct bb_session *, char *, size_t, char *, size_t, char *, size_t);
+void bb_zmq_send_msg(struct bb_dealer *, struct bb_session *, char *, size_t, char *, size_t, char *, size_t);
 void bb_zmq_receiver(struct ev_loop *, struct ev_io *, int);
 void bb_zmq_check_cb(struct ev_loop *, struct ev_prepare *, int);
 

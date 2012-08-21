@@ -431,6 +431,28 @@ void bb_vhost_push_acceptor(struct bb_virtualhost *vhost, struct bb_acceptor *ac
 	}
 }
 
+static void bb_add_router(char *name, struct bb_virtualhost *vhost) {
+	struct bb_router *last_bbr = NULL, *bbr = blastbeat.routers;
+
+	while(bbr) {
+		last_bbr = bbr;
+		bbr = bbr->next;
+	}
+
+	bbr = bb_alloc(sizeof(struct bb_router));
+	memset(bbr, 0, sizeof(struct bb_router));
+
+	bbr->zmq = name;
+	bbr->vhost = vhost;
+
+	if (last_bbr) {
+		last_bbr->next = bbr;
+	}
+	else {
+		blastbeat.routers = bbr;
+	}
+}
+
 static void bb_main_config_add(char *key, char *value) {
 
         is_opt( "bind") {
@@ -444,7 +466,7 @@ static void bb_main_config_add(char *key, char *value) {
         }
 
         is_opt( "zmq") {
-                blastbeat.zmq = value;
+		bb_add_router(value, NULL);
                 return;
         }
 
@@ -547,6 +569,11 @@ static void bb_vhost_config_add(char *vhostname, char *key, char *value) {
 
         is_opt( "timeout") {
 		vhost->timeout = strtoll(value, NULL, 10);
+                return;
+        }
+
+        is_opt( "zmq") {
+		bb_add_router(value, vhost);
                 return;
         }
 

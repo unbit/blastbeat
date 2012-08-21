@@ -269,7 +269,7 @@ static int header_ptr_value_cb(http_parser *parser, const char *buf, size_t len)
 }
 
 int bb_http_recv_body(struct bb_session *bbs, char *buf, size_t len) {
-	bb_zmq_send_msg(bbs, bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "body", 4, (char *) buf, len);
+	bb_zmq_send_msg(bbs->dealer, bbs, (char *) &bbs->uuid_part1, BB_UUID_LEN, "body", 4, (char *) buf, len);
 	return 0;
 }
 
@@ -349,7 +349,7 @@ msg:
 	if (bb_uwsgi(bbs)) {
 		return -1;
 	}
-        bb_zmq_send_msg(bbs, bbs->dealer->identity, bbs->dealer->len, (char *) &bbs->uuid_part1, BB_UUID_LEN, "uwsgi", 5, bbs->request.uwsgi_buf, bbs->request.uwsgi_pos);
+        bb_zmq_send_msg(bbs->dealer, bbs, (char *) &bbs->uuid_part1, BB_UUID_LEN, "uwsgi", 5, bbs->request.uwsgi_buf, bbs->request.uwsgi_pos);
         return 0;
 }
 
