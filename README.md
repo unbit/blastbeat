@@ -171,6 +171,9 @@ openssl x509 -req -days 365 -in foobar.csr -signkey foobar.key -out foobar.crt
 
 that will result in foobar.key and foobar.crt
 
+You can avoid allocating one ip for each https virtualhost using SNI (Server Name Identification). This is supported
+by all modern browsers. Just use the same bind-ssl directive for all of the virtualhost sharing the same address
+
 ## backend nodes
 
 Backend nodes talk will blastbeat via a zmq dealer socket. That socket has to set a valid identity based on the node name
