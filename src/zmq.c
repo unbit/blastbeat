@@ -136,7 +136,7 @@ static void bb_zmq_manage_messages() {
                         if (i != 4) goto next;
 
                         // manage "pong" messages
-			if (!strncmp(zmq_msg_data(&msg[2]), "pong", zmq_msg_size(&msg[2]))) {
+			if (!bb_strcmp(zmq_msg_data(&msg[2]), zmq_msg_size(&msg[2]), "pong", 4)) {
 				manage_ping(zmq_msg_data(&msg[0]), zmq_msg_size(&msg[0]));
 				goto next;
 			}
@@ -144,10 +144,13 @@ static void bb_zmq_manage_messages() {
                         // message with uuid ?
                         if (zmq_msg_size(&msg[1]) != BB_UUID_LEN) goto next;
 
-                        // dead/invalid session ?
+                        // dead/invalid session/dealer ?
                         struct bb_session *bbs = bb_sht_get(zmq_msg_data(&msg[1]));
                         if (!bbs) goto next;
+			if (!bbs->dealer) goto next;
+			if (bb_strcmp(zmq_msg_data(&msg[0]), zmq_msg_size(&msg[0]), bbs->dealer->identity, bbs->dealer->len)) goto next;
 			
+			// update dealer activity
 			ev_tstamp now = bb_now;
 			bbs->last_seen = now;
 			update_dealer(bbs->dealer, now);
