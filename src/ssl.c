@@ -102,6 +102,7 @@ static int bb_ssl_servername(SSL *ssl,int *ad, void *arg) {
 	size_t servername_len = strlen(servername);
 
 	struct bb_virtualhost *vhost = NULL;
+	struct bb_hostname *bbhn = NULL;
 
 	if (bba->addr.in4.sin_port != htons(443) && !strchr(servername, ':')) {
 		size_t port_len = strlen(bba->port_str);
@@ -110,14 +111,21 @@ static int bb_ssl_servername(SSL *ssl,int *ad, void *arg) {
 		memcpy(new_sn, servername, servername_len);
 		memcpy(new_sn + servername_len, bba->port_str, port_len);
 
-		vhost = bb_vhost_get(new_sn, servername_len+port_len);
+		vhost = bb_vhost_get(new_sn, servername_len+port_len, &bbhn);
 		bb_free(new_sn, servername_len+port_len);
 	}
 	else {
-		vhost = bb_vhost_get((char *)servername, servername_len);
+		vhost = bb_vhost_get((char *)servername, servername_len, &bbhn);
 	}
 
 	if (!vhost) return SSL_TLSEXT_ERR_NOACK;
+
+	// prefer dealer-defined context
+	if (bbhn->ctx) {
+		SSL_set_SSL_CTX(ssl, bbhn->ctx);
+		return SSL_TLSEXT_ERR_OK;
+	}
+
 	if (!vhost->ctx) return SSL_TLSEXT_ERR_NOACK;
 
 	SSL_set_SSL_CTX(ssl, vhost->ctx);

@@ -43,7 +43,7 @@ static int bb_hostname_compare(struct bb_hostname *bbhn, char *name, size_t len)
 // add the hostname to the hostnames hash
 static int bb_hostname_add(char *name, size_t len, struct bb_virtualhost *vhost) {
 
-	struct bb_virtualhost *already = bb_vhost_get(name, len);
+	struct bb_virtualhost *already = bb_vhost_get(name, len, NULL);
 	if (already) {
 		fprintf(stderr,"!!! hostname \"%.*s\" is already configured for virtualhost \"%.*s\" !!!\n", (int) len, name, (int) already->len, already->name);
 		return -1;
@@ -77,12 +77,15 @@ static int bb_hostname_add(char *name, size_t len, struct bb_virtualhost *vhost)
 }
 
 // get a vhost by hostname
-struct bb_virtualhost *bb_vhost_get(char *name, size_t len) {
+struct bb_virtualhost *bb_vhost_get(char *name, size_t len, struct bb_hostname **hostname) {
 
         uint32_t hnht_pos = djb2_hash_hostname(name, len);
         struct bb_hostname *bbhn = blastbeat.hnht[hnht_pos];
         while(bbhn) {
                 if (bb_hostname_compare(bbhn, name, len)) {
+			if (hostname) {
+				*hostname = bbhn;
+			}
                         return bbhn->vhost;
                 }
                 bbhn = bbhn->next;

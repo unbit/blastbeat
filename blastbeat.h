@@ -513,6 +513,10 @@ struct bb_vhost_acceptor {
 struct bb_hostname {
 	char *name;
 	size_t len;
+
+	// this could be overwritten multiple times by the dealers
+	SSL_CTX *ctx;
+
 	struct bb_virtualhost *vhost;
 	struct bb_hostname *next;
 };
@@ -658,7 +662,7 @@ int bb_http_send_body(struct bb_session *, char *, size_t);
 
 int bb_websocket_func(struct bb_connection *, char *, size_t);
 
-struct bb_virtualhost *bb_vhost_get(char *, size_t);
+struct bb_virtualhost *bb_vhost_get(char *, size_t, struct bb_hostname **);
 void bb_vhost_push_acceptor(struct bb_virtualhost *, struct bb_acceptor *);
 
 int bb_manage_cache(struct bb_session *, char *, size_t);

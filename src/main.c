@@ -154,7 +154,7 @@ void bb_connection_close(struct bb_connection *bbc) {
 
 int bb_set_dealer(struct bb_session *bbs, char *name, size_t len) {
 	// get the virtualhost from the hostname
-	struct bb_virtualhost *vhost = bb_vhost_get(name, len);
+	struct bb_virtualhost *vhost = bb_vhost_get(name, len, NULL);
 	if (!vhost) return -1;
 
 	// check if the virtualhost is allowed in that acceptor
