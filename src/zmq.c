@@ -53,6 +53,10 @@ void bb_raw_zmq_send_msg(struct bb_dealer *bbd, struct bb_session *bbs, char *si
 
 	if (bbs && bb_check_for_pipe(bbs, t, t_len, body, body_len)) return;
 
+	// check for secure channels
+	if (bbd->secure_key) {
+	}
+
         zmq_msg_t z_i,z_sid,z_t, z_body;
 
         zmq_msg_init_size(&z_i, bbd->len);

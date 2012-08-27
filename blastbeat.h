@@ -69,7 +69,7 @@ struct bb_virtualhost;
 struct bb_session;
 struct bb_router;
 
-// a dealer is a blackend node connecting to blastbeat
+// a dealer is a backend node connecting to blastbeat
 struct bb_dealer {
         char *identity;
 	size_t len;
@@ -78,6 +78,9 @@ struct bb_dealer {
 	int unauthorized;
 	int spawn_sent;
 	uint64_t load;
+
+	char *secure_key;
+	size_t secure_key_len;
 
 	struct bb_router *router;
 

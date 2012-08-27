@@ -119,6 +119,8 @@ static int bb_ssl_servername(SSL *ssl,int *ad, void *arg) {
 	}
 
 	if (!vhost) return SSL_TLSEXT_ERR_NOACK;
+	// per vhost-context is required to decrypt keys sent by dealers
+	if (!vhost->ctx) return SSL_TLSEXT_ERR_NOACK;
 
 	// prefer dealer-defined context
 	if (bbhn->ctx) {
@@ -126,7 +128,6 @@ static int bb_ssl_servername(SSL *ssl,int *ad, void *arg) {
 		return SSL_TLSEXT_ERR_OK;
 	}
 
-	if (!vhost->ctx) return SSL_TLSEXT_ERR_NOACK;
 
 	SSL_set_SSL_CTX(ssl, vhost->ctx);
 
@@ -198,3 +199,6 @@ void bb_socket_ssl(struct bb_acceptor *acceptor) {
         acceptor->write = bb_ssl_write;
 }
 
+//create an ssl context for an hostname
+int bb_add_ssl_context(struct bb_hostname *bbhn, char *buf, size_t len) {
+}
