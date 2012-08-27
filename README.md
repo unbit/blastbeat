@@ -75,9 +75,13 @@ Commands in development/study/analysis
 
 * **bandwidth** (limit bandwidth for the current connection)
 
-* **ssl** (send key, cert and diffie-helman to enable ssl/tls via Server Name Indication (SNI) )
+* **secure** (create a secure channel between the router and a dealer, following zeromq messages will be encrypted. The message body contains the key encrypted with the RSA public key extracted from the virtualhost certificate)
 
-* **sslverify** (if in SNI mode, force client ssl authentication using the supplied CA)
+* **unsecure** (disable the security channel)
+
+* **ssl** (send key, cert and diffie-helman to enable ssl/tls via Server Name Indication (SNI), requires a security channel )
+
+* **sslverify** (if in SNI mode, force client ssl authentication using the supplied CA, requires a security channel)
 
 feel free to propose your ideas...
 
