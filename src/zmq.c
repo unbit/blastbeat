@@ -40,7 +40,7 @@ extern http_parser_settings bb_http_response_parser_settings;
 
 static char *bb_get_route(char *buf, size_t len, size_t *rlen) {
 	while(len>0) {
-		if (buf[len--] == ':') {
+		if (buf[--len] == ':') {
 			*rlen = len+1;
 			return buf;
 		}
