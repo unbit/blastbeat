@@ -1,3 +1,7 @@
+
+!!! The project is on HOLD, lot of its features has been ported to the uWSGI project !!!
+
+
 The BlastBeat server
 =========
 
