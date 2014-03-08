@@ -70,12 +70,12 @@ void bb_raw_zmq_send_msg(struct bb_dealer *bbd, struct bb_session *bbs, char *si
         memcpy(zmq_msg_data(&z_body), body, body_len);
 
 
-        zmq_msg_send(bbd->router->router, &z_i, ZMQ_SNDMORE);
-        zmq_msg_send(bbd->router->router, &z_sid, ZMQ_SNDMORE);
-        zmq_msg_send(bbd->router->router, &z_t, ZMQ_SNDMORE);
+        zmq_msg_send(&z_i, bbd->router->router, ZMQ_SNDMORE);
+        zmq_msg_send(&z_sid, bbd->router->router, ZMQ_SNDMORE);
+        zmq_msg_send(&z_t, bbd->router->router, ZMQ_SNDMORE);
 
 	// router/dealers should never block...
-        if (zmq_msg_send(bbd->router->router, &z_body, ZMQ_NOBLOCK)) {
+        if (zmq_msg_send(&z_body, bbd->router->router, ZMQ_NOBLOCK)) {
                 bb_error("zmq_send()");
         }
 
@@ -127,7 +127,7 @@ static void bb_zmq_manage_messages(struct bb_router *bbr) {
 			zmq_msg_init(&msg[3]);
 
                         for(i=0;i<4;i++) {
-                                zmq_msg_recv(bbr->router, &msg[i], ZMQ_NOBLOCK);
+                                zmq_msg_recv(&msg[i], bbr->router, ZMQ_NOBLOCK);
                                 if (zmq_getsockopt(bbr->router, ZMQ_RCVMORE, &more, &more_size)) {
                                         perror("zmq_getsockopt()");
                                         break;
