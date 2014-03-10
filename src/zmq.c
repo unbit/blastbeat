@@ -75,7 +75,7 @@ void bb_raw_zmq_send_msg(struct bb_dealer *bbd, struct bb_session *bbs, char *si
         zmq_msg_send(&z_t, bbd->router->router, ZMQ_SNDMORE);
 
 	// router/dealers should never block...
-        if (zmq_msg_send(&z_body, bbd->router->router, ZMQ_NOBLOCK)) {
+        if (zmq_msg_send(&z_body, bbd->router->router, ZMQ_DONTWAIT)==-1) {
                 bb_error("zmq_send()");
         }
 

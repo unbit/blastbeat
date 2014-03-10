@@ -297,7 +297,6 @@ static int bb_spdy_uwsgi(struct bb_session *bbs, char *ptr, uint32_t hlen) {
                 vlen = ntohl(vlen); ptr+=4;
 		char *val = ptr;
                 ptr += vlen;
-
 		if (!bb_strcmp(key, klen, ":method", 7)) {
 			if (add_uwsgi_item(bbs, "REQUEST_METHOD", 14, val, vlen, 0)) return -1;
 			method = val; method_len = vlen;
@@ -428,7 +427,7 @@ int bb_spdy_push_headers(struct bb_session *bbs) {
         // zzzzzzzzzzzzzzzzzzzzZZZZXXXXstatusXXXXyyyXXXXversionXXXXyyyyyyyy
         // 1v02FLenStrmAtsiPsNvpr
         // 0123456789012345678901 = 22 bytes long
-        // 24 bytes + 18 hdr1 + 24 hdr2 = 64 bytes long
+        // 22 bytes + 18 hdr1 + 24 hdr2 = 64 bytes long
         //
         // transform all of the headers keys to lowercase
         size_t spdy_len = 22+18+24; // SYN_STREAM frame + 2 headers
