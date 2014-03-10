@@ -70,12 +70,12 @@ void bb_raw_zmq_send_msg(struct bb_dealer *bbd, struct bb_session *bbs, char *si
         memcpy(zmq_msg_data(&z_body), body, body_len);
 
 
-        zmq_send(bbd->router->router, &z_i, ZMQ_SNDMORE);
-        zmq_send(bbd->router->router, &z_sid, ZMQ_SNDMORE);
-        zmq_send(bbd->router->router, &z_t, ZMQ_SNDMORE);
+        zmq_msg_send(&z_i, bbd->router->router, ZMQ_SNDMORE);
+        zmq_msg_send(&z_sid, bbd->router->router, ZMQ_SNDMORE);
+        zmq_msg_send(&z_t, bbd->router->router, ZMQ_SNDMORE);
 
 	// router/dealers should never block...
-        if (zmq_send(bbd->router->router, &z_body, ZMQ_NOBLOCK)) {
+        if (zmq_msg_send(&z_body, bbd->router->router, ZMQ_DONTWAIT)==-1) {
                 bb_error("zmq_send()");
         }
 
@@ -99,7 +99,7 @@ static void update_dealer(struct bb_dealer *bbd, ev_tstamp now) {
 	if (bbd->status == BLASTBEAT_DEALER_OFF) {
 		bbd->status = BLASTBEAT_DEALER_AVAILABLE;
 		fprintf(stderr, "node \"%s\" is available\n", bbd->identity);
-	}	
+	}
 }
 
 static void manage_ping(struct bb_router *bbr, char *identity, size_t len) {
@@ -121,13 +121,13 @@ static void bb_zmq_manage_messages(struct bb_router *bbr) {
                         size_t more_size = sizeof(more);
                         int i;
                         zmq_msg_t msg[4];
-			zmq_msg_init(&msg[0]);	
-			zmq_msg_init(&msg[1]);	
-			zmq_msg_init(&msg[2]);	
-			zmq_msg_init(&msg[3]);	
+			zmq_msg_init(&msg[0]);
+			zmq_msg_init(&msg[1]);
+			zmq_msg_init(&msg[2]);
+			zmq_msg_init(&msg[3]);
 
                         for(i=0;i<4;i++) {
-                                zmq_recv(bbr->router, &msg[i], ZMQ_NOBLOCK);
+                                zmq_msg_recv(&msg[i], bbr->router, ZMQ_NOBLOCK);
                                 if (zmq_getsockopt(bbr->router, ZMQ_RCVMORE, &more, &more_size)) {
                                         perror("zmq_getsockopt()");
                                         break;
@@ -157,7 +157,7 @@ static void bb_zmq_manage_messages(struct bb_router *bbr) {
 			if (bbs->dealer->router != bbr) goto next;
 			// check identity
 			if (bb_strcmp(zmq_msg_data(&msg[0]), zmq_msg_size(&msg[0]), bbs->dealer->identity, bbs->dealer->len)) goto next;
-			
+
 			// update dealer activity
 			ev_tstamp now = bb_now;
 			bbs->last_seen = now;
@@ -351,7 +351,7 @@ static void bb_zmq_manage_messages(struct bb_router *bbr) {
 			on_cmd("socket.io/event", 15) {
 				if (bb_socketio_push(bbs, '5', zmq_msg_data(&msg[3]), zmq_msg_size(&msg[3]))) {
 					// destroy the whole session
-					bbs->persistent = 0;		
+					bbs->persistent = 0;
 					bb_connection_close(bbs->connection);
 				}
 				goto next;

@@ -44,7 +44,7 @@ ssize_t bb_ssl_read(struct bb_connection *bbc, char *buf, size_t len) {
         return -1;
 
 
-} 
+}
 
 ssize_t bb_ssl_write(struct bb_connection *bbc, char *buf, size_t len) {
         int ret = SSL_write(bbc->ssl, buf, len);
@@ -87,7 +87,7 @@ ssize_t bb_ssl_write(struct bb_connection *bbc, char *buf, size_t len) {
 
 #ifdef OPENSSL_NPN_UNSUPPORTED
 static int bb_ssl_npn(SSL *ssl, const unsigned char **data, unsigned int *len, void *arg) {
-        *data = (const unsigned char *) "\x06spdy/2\x08http/1.1\x08http/1.0";
+        *data = (const unsigned char *) "\x06spdy/3\x08http/1.1\x08http/1.0";
         *len = strlen((const char *) *data);
         return SSL_TLSEXT_ERR_OK;
 }
@@ -168,7 +168,7 @@ SSL_CTX *bb_new_ssl_ctx() {
         SSL_CTX_set_next_protos_advertised_cb(ctx, bb_ssl_npn, NULL);
 #endif
 #ifdef SSL_CTRL_SET_TLSEXT_HOSTNAME
-	SSL_CTX_set_tlsext_servername_callback(ctx, bb_ssl_servername);	
+	SSL_CTX_set_tlsext_servername_callback(ctx, bb_ssl_servername);
 #else
 #warning TLS SNI support not available !!!
 #endif
