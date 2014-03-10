@@ -425,10 +425,13 @@ int bb_spdy_push_headers(struct bb_session *bbs) {
 	// connection is required for correct stream numbering
 	struct bb_connection *bbc = bbs->connection;
         // calculate the destination buffer size
-        // zzzzzzzzzzzzZZZZXXXXstatusXXXXyyyXXXXversionXXXXyyyyyyyy
+        // zzzzzzzzzzzzzzzzzzzzZZZZXXXXstatusXXXXyyyXXXXversionXXXXyyyyyyyy
+        // 1v02FLenStrmAtsiPsNvpr
+        // 0123456789012345678901 = 22 bytes long
+        // 24 bytes + 18 hdr1 + 24 hdr2 = 64 bytes long
         //
         // transform all of the headers keys to lowercase
-        size_t spdy_len = 16+18+24; // SYN_REPLY frame + 2 headers
+        size_t spdy_len = 22+18+24; // SYN_STREAM frame + 2 headers
         for(i=0;i<bbs->response.headers_count;i++) {
                 spdy_len += 4 + bbs->response.headers[i].keylen + 4 + bbs->response.headers[i].vallen;
                 size_t j;
@@ -456,7 +459,7 @@ int bb_spdy_push_headers(struct bb_session *bbs) {
         // 24 bit length (later)
         // ...
 
-        // stream_id
+        // stream_id 8-11
 	// increase the push queue
         bbc->spdy_even_stream_id+=2;
 	char *tmp_queue = bb_realloc(bbs->push_queue, bbs->push_queue_len, 4);
@@ -472,15 +475,19 @@ int bb_spdy_push_headers(struct bb_session *bbs) {
 	bbs->push_queue_len+=4;
 
 
-	// Associated-To-Stream-ID
+	// Associated-To-Stream-ID bytes 12-15
         stream_id = htonl(bbs->stream_id);
         memcpy(buf+12, &stream_id, 4);
 
-	// set the number of headers
-        uint32_t hlen = htonl(bbs->response.headers_count+2);
-        memcpy(buf+16, &hlen, 4);
+        // bytes 16-19
+        buf[16]=0x03; // priority
+        buf[17]=0x00; // slot (credentials related)
 
-        char *ptr = buf+20;
+	// set the number of headers 18-21
+        uint32_t hlen = htonl(bbs->response.headers_count+2);
+        memcpy(buf+18, &hlen, 4);
+
+        char *ptr = buf+22;
 
         // add status header
         uint32_t slen = htonl(7);
@@ -519,27 +526,27 @@ int bb_spdy_push_headers(struct bb_session *bbs) {
         }
 
         size_t ch_len = 0;
-        char *compresses_headers = bb_spdy_deflate(&bbc->spdy_z_out, buf+16, spdy_len-16, &ch_len);
+        char *compresses_headers = bb_spdy_deflate(&bbc->spdy_z_out, buf+18, spdy_len-18, &ch_len);
         if (!compresses_headers) {
                 return -1;
         }
 
-        // spec say 10 bytes (for the streamids & pri/s;pt) + length
+        // spec say 10 bytes (for the streamids & pri/slot) + length
         uint32_t l = htonl(10 + ch_len);
         void *ll = &l;
         memcpy(buf+5, ll+1, 3);
 
-        if (bb_wq_push_copy(bbs, buf, 16, BB_WQ_FREE)) {
+        if (bb_wq_push_copy(bbs, buf, 18, BB_WQ_FREE)) {
 		bb_free(buf, spdy_len);
                 return -1;
         }
 
 	bb_free(buf, spdy_len);
         if (bb_wq_push_copy(bbs, compresses_headers, ch_len, BB_WQ_FREE)) {
-		bb_free(compresses_headers, (spdy_len-16)+30);
+		bb_free(compresses_headers, (spdy_len-18)+30);
                 return -1;
         }
-	bb_free(compresses_headers, (spdy_len-16)+30);
+	bb_free(compresses_headers, (spdy_len-18)+30);
 
         return 0;
 }
@@ -549,7 +556,9 @@ int bb_spdy_raw_send_headers(struct bb_session *bbs, off_t headers_count, struct
 	// calculate the destination buffer size
 	// zzzzzzzzzzzzZZZZXXXXstatusXXXXyyyXXXXversionXXXXyyyyyyyy
 	// 1v02FLenStrmNvpr
-	// 16 bytes + 18 hdr1 + 24 hdr2 = 58
+	// 0123456789012345 = 16 bytes long
+	// 16 bytes + 18 hdr1 + 24 hdr2 = 56
+	//
 	// transform all of the headers keys to lowercase
 	size_t spdy_len = 16+18+24; // SYN_REPLY frame + 2 headers
 	for(i=0;i<headers_count;i++) {
@@ -579,11 +588,11 @@ int bb_spdy_raw_send_headers(struct bb_session *bbs, off_t headers_count, struct
 	// 24 bit length (later)
 	// ...
 
-	// stream_id
+	// stream_id bytes 8-11
 	uint32_t stream_id = htonl(bbs->stream_id);
 	memcpy(buf+8, &stream_id, 4);
 
-	// set the number of headers
+	// set the number of headers 12-15
 	uint32_t hlen = htonl(headers_count+2);
 	memcpy(buf+12, &hlen, 4);
 
@@ -591,23 +600,23 @@ int bb_spdy_raw_send_headers(struct bb_session *bbs, off_t headers_count, struct
 
 	// add status header
 	uint32_t slen = htonl(7);
-	memcpy(ptr, &slen, 4); ptr+=4;
-	memcpy(ptr, ":status", 7); ptr+=7;
+	memcpy(ptr, &slen, 4); ptr+=4; // byte 20
+	memcpy(ptr, ":status", 7); ptr+=7; // bytes 27
 	// value: 200
 	slen = htonl(3);
-	memcpy(ptr, &slen, 4); ptr+=4;
-	*ptr++ = status[0];
-	*ptr++ = status[1];
-	*ptr++ = status[2];
+	memcpy(ptr, &slen, 4); ptr+=4; // bytes 31
+	*ptr++ = status[0]; // bytes 35
+	*ptr++ = status[1]; // bytes 36
+	*ptr++ = status[2]; // bytes 37
 
   // add version header (HTTP/1.1)
 	slen = htonl(8);
-	memcpy(ptr, &slen, 4); ptr+=4;
-	memcpy(ptr, ":version", 8); ptr+=8;
+	memcpy(ptr, &slen, 4); ptr+=4; // byte 41
+	memcpy(ptr, ":version", 8); ptr+=8; // bytes 49
 	// value: protocol
 	//slen = htonl(8);
-	memcpy(ptr, &slen, 4); ptr+=4;
-	memcpy(ptr, protocol, 8); ptr+=8;
+	memcpy(ptr, &slen, 4); ptr+=4; // byte 52
+	memcpy(ptr, protocol, 8); ptr+=8; // bytes
 
 	// generate spdy headers from response headers
 	for(i=0;i<headers_count;i++) {
@@ -622,27 +631,30 @@ int bb_spdy_raw_send_headers(struct bb_session *bbs, off_t headers_count, struct
 	}
 
 	size_t ch_len = 0;
+	// send bytes from 12 on (nvkp)
 	char *compresses_headers = bb_spdy_deflate(&bbs->connection->spdy_z_out, buf+12, spdy_len-12, &ch_len);
 	if (!compresses_headers) {
 		return -1;
 	}
 
+	// spec say 4 bytes (for the streamid) + length
 	uint32_t l = htonl(4 + ch_len);
 	void *ll = &l;
 	memcpy(buf+5, ll+1, 3);
 
+  // push first 12 bytes
 	if (bb_wq_push_copy(bbs, buf, 12, BB_WQ_FREE)) {
 		bb_free(buf, spdy_len);
 		return -1;
 	}
-
 	bb_free(buf, spdy_len);
 
+  // push remaining compressed data (ch_len bytes)
 	if (bb_wq_push_copy(bbs, compresses_headers, ch_len, BB_WQ_FREE)) {
-		bb_free(compresses_headers, (spdy_len-12)+30);
+		bb_free(compresses_headers, (spdy_len-12)+30); // +30 bytes do to deflate
 		return -1;
 	}
-	bb_free(compresses_headers, (spdy_len-12)+30);
+	bb_free(compresses_headers, (spdy_len-12)+30); // +30 bytes do to deflate
 
 	return 0;
 }
